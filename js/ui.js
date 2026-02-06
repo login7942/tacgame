@@ -205,15 +205,22 @@ export class GameUI {
       if (!res) continue;
       items.push({ id, count, name: res.name, icon: res.icon, tier: res.tier, type: res.crafted ? 'material' : 'resource', category: res.category });
     }
-    // 장비
-    const eqCount = {};
-    for (const eId of s.equipment) {
-      eqCount[eId] = (eqCount[eId] || 0) + 1;
-    }
-    for (const [id, count] of Object.entries(eqCount)) {
-      const eq = EQUIPMENT[id];
-      if (!eq) continue;
-      items.push({ id, count, name: eq.name, icon: eq.icon, tier: eq.tier, type: 'equipment', category: eq.type });
+    // 장비 (개별 인스턴스)
+    for (const eq of s.equipment) {
+      const base = EQUIPMENT[eq.baseId];
+      if (!base) continue;
+      const displayName = this.engine.enhancement.formatEquipmentName(eq);
+      items.push({
+        id: eq.uid, // uid 사용
+        uid: eq.uid,
+        count: 1,
+        name: displayName,
+        icon: base.icon,
+        tier: base.tier,
+        type: 'equipment',
+        category: base.type,
+        enhancement: eq.enhancement || 0,
+      });
     }
 
     // 필터
@@ -249,20 +256,42 @@ export class GameUI {
     let html = '';
 
     if (type === 'equipment') {
-      const eq = EQUIPMENT[itemId];
+      const uid = itemId; // itemId는 이제 uid
+      const eqInstance = this.engine.getEquipmentByUid(uid);
+      if (!eqInstance) return;
+      const eq = EQUIPMENT[eqInstance.baseId];
       if (!eq) return;
-      const isEquipped = Object.values(s.equippedGear).includes(itemId);
+
+      const isEquipped = Object.values(s.equippedGear).includes(uid);
+      const displayName = this.engine.enhancement.formatEquipmentName(eqInstance);
+      const enhanceLevel = eqInstance.enhancement || 0;
+      const enhancedStats = this.engine.getEnhancedEquipmentStats(uid);
+      const enhanceInfo = this.engine.getEnhanceInfo(uid);
+
       html = `
-        <div class="modal-title">${eq.icon} ${eq.name}</div>
+        <div class="modal-title">${eq.icon} ${displayName}</div>
         <div class="text-muted mb-8">${eq.desc}</div>
+
+        ${enhanceLevel > 0 ? `
+        <div class="modal-section" style="background:rgba(76,175,80,0.1);padding:8px;border-radius:4px;margin-bottom:8px;">
+          <div style="color:#4caf50;font-weight:600;font-size:12px;">✨ 강화 보너스: +${Math.round((this.engine.enhancement.getEnhancementBonus(enhanceLevel) - 1) * 100)}%</div>
+        </div>` : ''}
+
         <div class="modal-section">
-          <div class="modal-section-title">스탯</div>
-          ${Object.entries(eq.stats).map(([k,v]) => `
+          <div class="modal-section-title">스탯 ${enhanceLevel > 0 ? `<span class="text-muted" style="font-size:11px;">(강화 적용됨)</span>` : ''}</div>
+          ${Object.entries(enhancedStats).map(([k,v]) => {
+            const baseValue = eq.stats[k] || 0;
+            const bonus = v - baseValue;
+            return `
             <div class="modal-stat-row">
               <span class="modal-stat-label">${this.statName(k)}</span>
-              <span class="modal-stat-value text-green">+${v}</span>
-            </div>`).join('')}
+              <span class="modal-stat-value text-green">
+                +${v}${bonus > 0 ? ` <span class="text-purple">(+${bonus})</span>` : ''}
+              </span>
+            </div>`;
+          }).join('')}
         </div>
+
         ${Object.keys(eq.resistances).length > 0 ? `
         <div class="modal-section">
           <div class="modal-section-title">저항</div>
@@ -273,8 +302,10 @@ export class GameUI {
               <span>${v}</span>
             </div>`).join('')}
         </div>` : ''}
+
         <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
           <button class="btn ${isEquipped ? 'btn-warning' : 'btn-primary'}" id="modal-equip">${isEquipped ? '해제' : '장착'}</button>
+          ${enhanceInfo.canEnhance ? `<button class="btn btn-success" id="modal-enhance">💎 강화 (+${enhanceLevel} → +${enhanceLevel+1})</button>` : ''}
           <button class="btn btn-danger btn-small" id="modal-vault">계승 보관</button>
         </div>`;
     } else {
@@ -299,6 +330,9 @@ export class GameUI {
       this.engine.equipItem(itemId);
       this.closeModal();
     });
+    document.getElementById('modal-enhance')?.addEventListener('click', () => {
+      this.showEnhanceModal(itemId);
+    });
     document.getElementById('modal-use-food')?.addEventListener('click', () => {
       this.engine.useFood(itemId);
       this.closeModal();
@@ -306,6 +340,103 @@ export class GameUI {
     document.getElementById('modal-vault')?.addEventListener('click', () => {
       this.engine.addToVault(itemId, 1);
       this.closeModal();
+    });
+  }
+
+  showEnhanceModal(uid) {
+    const s = this.engine.getState();
+    const eqInstance = this.engine.getEquipmentByUid(uid);
+    if (!eqInstance) return;
+    const eq = EQUIPMENT[eqInstance.baseId];
+    if (!eq) return;
+
+    const enhanceInfo = this.engine.getEnhanceInfo(uid);
+    if (!enhanceInfo) return;
+
+    const displayName = this.engine.enhancement.formatEquipmentName(eqInstance);
+    const currentLevel = enhanceInfo.currentLevel;
+    const nextLevel = currentLevel + 1;
+    const successRate = Math.round(enhanceInfo.successRate * 100);
+    const material = enhanceInfo.material;
+    const cost = enhanceInfo.cost;
+
+    const hasMaterial = this.engine.hasItem(material.id, material.amount);
+    const hasGold = s.player.gold >= cost;
+    const canEnhance = hasMaterial && hasGold;
+
+    // 실패 시 패널티 설명
+    let failurePenalty = '';
+    if (currentLevel <= 5) {
+      failurePenalty = '강화도 유지';
+    } else if (currentLevel <= 7) {
+      failurePenalty = '50% 확률로 강화도 -1';
+    } else {
+      failurePenalty = '<span class="text-red">강화도 -1 또는 30% 파괴</span>';
+    }
+
+    const html = `
+      <div class="modal-title">💎 장비 강화</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px;">${eq.icon} ${displayName}</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">강화 정보</div>
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">현재 강화</span>
+          <span class="modal-stat-value">+${currentLevel}</span>
+        </div>
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">목표 강화</span>
+          <span class="modal-stat-value text-green">+${nextLevel}</span>
+        </div>
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">성공 확률</span>
+          <span class="modal-stat-value ${successRate >= 70 ? 'text-green' : successRate >= 50 ? 'text-yellow' : 'text-red'}">${successRate}%</span>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">필요 재료</div>
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">${this.engine.getItemIcon(material.id)} ${material.name}</span>
+          <span class="modal-stat-value ${hasMaterial ? 'text-green' : 'text-red'}">${this.engine.getItemCount(material.id)} / ${material.amount}</span>
+        </div>
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">💰 골드</span>
+          <span class="modal-stat-value ${hasGold ? 'text-green' : 'text-red'}">${s.player.gold.toLocaleString()} / ${cost.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div class="modal-section" style="font-size:11px;color:#889;">
+        <div><strong>💡 강화 규칙:</strong></div>
+        <div>• 성공 시: 스탯 +7% 증가</div>
+        <div>• 실패 시: ${failurePenalty}</div>
+        ${currentLevel >= 8 ? '<div class="text-red">⚠️ 고강화 구간! 파괴 위험!</div>' : ''}
+      </div>
+
+      <button class="btn ${canEnhance ? 'btn-success' : 'btn-disabled'}" id="btn-confirm-enhance" ${!canEnhance ? 'disabled' : ''} style="width:100%;margin-top:12px;">
+        ✨ 강화 시도 (${successRate}%)
+      </button>
+    `;
+
+    this.showModal(html);
+
+    document.getElementById('btn-confirm-enhance')?.addEventListener('click', () => {
+      this.closeModal();
+      const result = this.engine.enhanceEquipment(uid);
+      // 결과는 toast로 표시됨
+      if (result.success || result.destroyed) {
+        // 성공하거나 파괴되면 인벤토리 갱신
+        this.renderCurrentTab();
+      } else {
+        // 실패 시 다시 강화 모달 표시
+        setTimeout(() => {
+          // 장비가 파괴되지 않았으면 다시 보여주기
+          const stillExists = this.engine.getEquipmentByUid(uid);
+          if (stillExists) {
+            this.showItemDetail(uid, 'equipment');
+          }
+        }, 100);
+      }
     });
   }
 
@@ -530,15 +661,16 @@ export class GameUI {
     const equipSlots = ['weapon','armor','tool','accessory'];
     const slotNames = { weapon:'무기', armor:'방어구', tool:'도구', accessory:'악세서리' };
 
-    // 장착 가능한 장비 목록
-    const availableEquip = s.equipment.filter(eId => {
-      const eq = EQUIPMENT[eId];
+    // 장착 가능한 장비 목록 (uid 기반)
+    const availableEquip = s.equipment.filter(eqInstance => {
+      const uid = eqInstance.uid;
+      const eq = EQUIPMENT[eqInstance.baseId];
       if (!eq) return false;
       // 플레이어가 끼고있으면 제외
-      if (Object.values(s.equippedGear).includes(eId)) return false;
+      if (Object.values(s.equippedGear).includes(uid)) return false;
       // 다른 일꾼이 끼고있으면 제외
       for (const ow of s.workers) {
-        if (ow.id !== workerId && Object.values(ow.equipment).includes(eId)) return false;
+        if (ow.id !== workerId && Object.values(ow.equipment).includes(uid)) return false;
       }
       return true;
     });
@@ -562,11 +694,13 @@ export class GameUI {
         <div class="modal-section-title">장비</div>
         <div class="equip-slots">
           ${equipSlots.map(slot => {
-            const eqId = w.equipment[slot];
-            const eq = eqId ? EQUIPMENT[eqId] : null;
+            const uid = w.equipment[slot];
+            const eqInstance = uid ? this.engine.getEquipmentByUid(uid) : null;
+            const eq = eqInstance ? EQUIPMENT[eqInstance.baseId] : null;
+            const displayName = eqInstance ? this.engine.enhancement.formatEquipmentName(eqInstance) : slotNames[slot];
             return `<div class="equip-slot ${eq ? 'filled' : ''}" data-slot="${slot}">
               <span class="slot-icon">${eq ? eq.icon : '➕'}</span>
-              <span class="slot-label">${eq ? eq.name : slotNames[slot]}</span>
+              <span class="slot-label">${displayName}</span>
             </div>`;
           }).join('')}
         </div>
@@ -597,15 +731,16 @@ export class GameUI {
       <div class="modal-section">
         <div class="modal-section-title">장비 장착</div>
         <div style="max-height:150px;overflow-y:auto;">
-          ${availableEquip.map(eId => {
-            const eq = EQUIPMENT[eId];
-            return `<div class="recipe-card" style="margin-bottom:4px;padding:6px;" data-eq="${eId}">
+          ${availableEquip.map(eqInstance => {
+            const eq = EQUIPMENT[eqInstance.baseId];
+            const displayName = this.engine.enhancement.formatEquipmentName(eqInstance);
+            return `<div class="recipe-card" style="margin-bottom:4px;padding:6px;" data-eq="${eqInstance.uid}">
               <span style="font-size:18px;">${eq.icon}</span>
               <div class="recipe-info">
-                <div style="font-size:11px;font-weight:600;">${eq.name}</div>
+                <div style="font-size:11px;font-weight:600;">${displayName}</div>
                 <div style="font-size:9px;color:#889;">${eq.slot} | Tier ${eq.tier}</div>
               </div>
-              <button class="btn btn-primary btn-small worker-equip-btn" data-eq="${eId}">장착</button>
+              <button class="btn btn-primary btn-small worker-equip-btn" data-eq="${eqInstance.uid}">장착</button>
             </div>`;
           }).join('')}
         </div>

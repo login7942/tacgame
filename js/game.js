@@ -7,6 +7,7 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          EXP_TABLE, INHERITABLE_CATEGORIES, ENV_NAMES } from './data.js';
 import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
+import { EnhancementSystem } from './systems/enhancement.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -58,6 +59,7 @@ export class GameEngine {
     this.gatherCooldown = 0;
     this.combat = null; // CombatSystem 인스턴스
     this.gathering = null; // GatheringSystem 인스턴스
+    this.enhancement = null; // EnhancementSystem 인스턴스
   }
 
   // ---- 이벤트 시스템 ----
@@ -74,6 +76,7 @@ export class GameEngine {
     this.state = this.loadState() || createDefaultState();
     this.initCombatSystem();
     this.initGatheringSystem();
+    this.initEnhancementSystem();
     this.initMarket();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
@@ -86,8 +89,10 @@ export class GameEngine {
       getPlayerResist: () => this.getPlayerResistances(),
       getPlayerHp:     () => ({ hp: this.state.player.hp, maxHp: this.state.player.maxHp }),
       getWeaponData:   () => {
-        const wId = this.state.equippedGear.weapon;
-        return wId ? EQUIPMENT[wId] : null;
+        const uid = this.state.equippedGear.weapon;
+        if (!uid) return null;
+        const eq = this.getEquipmentByUid(uid);
+        return eq ? EQUIPMENT[eq.baseId] : null;
       },
       damagePlayer: (dmg) => {
         this.state.player.hp = clamp(this.state.player.hp - dmg, 0, this.state.player.maxHp);
@@ -222,6 +227,57 @@ export class GameEngine {
     this.gathering.on('gatherTick', () => this.emit('stateChanged', this.state));
   }
 
+  // ---- 강화 시스템 초기화 (콜백 브릿지) ----
+  initEnhancementSystem() {
+    this.enhancement = new EnhancementSystem({
+      getPlayerGold: () => this.state.player.gold,
+      consumeGold: (amt) => {
+        if (this.state.player.gold < amt) return false;
+        this.state.player.gold -= amt;
+        return true;
+      },
+      hasItem: (id, amt) => this.hasItem(id, amt),
+      removeItem: (id, amt) => this.removeItem(id, amt),
+      getEquipmentInstance: (uid) => this.getEquipmentByUid(uid),
+      updateEquipmentInstance: (uid, data) => {
+        const idx = this.state.equipment.findIndex(e => e.uid === uid);
+        if (idx >= 0) {
+          this.state.equipment[idx] = data;
+        }
+      },
+      destroyEquipmentInstance: (uid) => {
+        // 장착 해제
+        for (const [slot, eqUid] of Object.entries(this.state.equippedGear)) {
+          if (eqUid === uid) {
+            this.state.equippedGear[slot] = null;
+          }
+        }
+        // 일꾼 장비 해제
+        for (const w of this.state.workers) {
+          for (const [slot, eqUid] of Object.entries(w.equipment)) {
+            if (eqUid === uid) {
+              w.equipment[slot] = null;
+            }
+          }
+        }
+        // 장비 제거
+        this.state.equipment = this.state.equipment.filter(e => e.uid !== uid);
+      },
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    // EnhancementSystem 이벤트 → GameEngine 이벤트 전달
+    this.enhancement.on('toast', (t) => this.emit('toast', t));
+    this.enhancement.on('enhanceSuccess', (data) => {
+      this.recalcPlayerStats();
+      this.emit('stateChanged', this.state);
+    });
+    this.enhancement.on('enhanceFail', (data) => {
+      this.recalcPlayerStats();
+      this.emit('stateChanged', this.state);
+    });
+  }
+
   // ---- 저장/불러오기 ----
   saveState() {
     this.state.lastSave = Date.now();
@@ -241,6 +297,63 @@ export class GameEngine {
       }
       if (!state.permanentBonuses) state.permanentBonuses = def.permanentBonuses;
       if (!state.stats) state.stats = def.stats;
+
+      // ===== Migration: 장비 구조 변경 (string[] → object[]) =====
+      if (state.equipment && state.equipment.length > 0 && typeof state.equipment[0] === 'string') {
+        console.log('[Migration] 장비 데이터 구조 변환 중...');
+        const oldEquipment = state.equipment;
+        const newEquipment = [];
+        const uidMap = {}; // oldId → uid 매핑
+
+        // 장비 인스턴스 생성
+        for (const baseId of oldEquipment) {
+          const newUid = uid();
+          newEquipment.push({
+            uid: newUid,
+            baseId: baseId,
+            enhancement: 0,
+            name: EQUIPMENT[baseId] ? EQUIPMENT[baseId].name : baseId,
+          });
+          // 첫 번째 등장만 매핑 (나중에 나온건 별도 인스턴스)
+          if (!uidMap[baseId]) {
+            uidMap[baseId] = newUid;
+          }
+        }
+
+        state.equipment = newEquipment;
+
+        // equippedGear 변환
+        for (const [slot, oldId] of Object.entries(state.equippedGear)) {
+          if (oldId && uidMap[oldId]) {
+            state.equippedGear[slot] = uidMap[oldId];
+            // 사용된 uid는 매핑에서 제거 (다음 slot은 다른 인스턴스 사용)
+            delete uidMap[oldId];
+          }
+        }
+
+        // workers 장비 변환
+        for (const worker of state.workers || []) {
+          if (worker.equipment) {
+            for (const [slot, oldId] of Object.entries(worker.equipment)) {
+              if (oldId && uidMap[oldId]) {
+                worker.equipment[slot] = uidMap[oldId];
+                delete uidMap[oldId];
+              } else if (oldId) {
+                // 매핑 없으면 첫 번째 일치하는 인스턴스 찾기
+                const found = newEquipment.find(e => e.baseId === oldId && !Object.values(state.equippedGear).includes(e.uid));
+                if (found) {
+                  worker.equipment[slot] = found.uid;
+                } else {
+                  worker.equipment[slot] = null;
+                }
+              }
+            }
+          }
+        }
+
+        console.log('[Migration] 장비 데이터 구조 변환 완료!');
+      }
+
       return state;
     } catch { return null; }
   }
@@ -319,20 +432,51 @@ export class GameEngine {
     this.emit('tick', s);
   }
 
+  // ---- 장비 Helper 함수 ----
+  getEquipmentByUid(uid) {
+    return this.state.equipment.find(e => e.uid === uid);
+  }
+
+  getEquipmentBaseData(uid) {
+    const eq = this.getEquipmentByUid(uid);
+    if (!eq) return null;
+    return EQUIPMENT[eq.baseId];
+  }
+
+  // 강화 보너스가 적용된 장비 스탯 계산
+  getEnhancedEquipmentStats(uid) {
+    const eq = this.getEquipmentByUid(uid);
+    if (!eq) return {};
+    const base = EQUIPMENT[eq.baseId];
+    if (!base) return {};
+
+    const enhanceLevel = eq.enhancement || 0;
+    const bonus = this.enhancement.getEnhancementBonus(enhanceLevel);
+
+    const enhanced = { ...base.stats };
+    for (const [key, value] of Object.entries(enhanced)) {
+      if (typeof value === 'number') {
+        enhanced[key] = Math.floor(value * bonus);
+      }
+    }
+
+    return enhanced;
+  }
+
   // ---- 플레이어 스탯 계산 ----
   getPlayerStats() {
     const s = this.state;
     const base = { attack: s.player.attack, defense: s.player.defense, speed: s.player.speed, luck: s.player.luck, hp: s.player.maxHp };
-    // 장비 보너스
-    for (const slot of Object.values(s.equippedGear)) {
-      if (slot && EQUIPMENT[slot]) {
-        const eq = EQUIPMENT[slot];
-        if (eq.stats.attack) base.attack += eq.stats.attack;
-        if (eq.stats.defense) base.defense += eq.stats.defense;
-        if (eq.stats.speed) base.speed += eq.stats.speed;
-        if (eq.stats.luck) base.luck += eq.stats.luck;
-        if (eq.stats.hp) base.hp += eq.stats.hp;
-        if (eq.stats.crit) base.crit = (base.crit || 0) + eq.stats.crit;
+    // 장비 보너스 (강화 보너스 포함)
+    for (const uid of Object.values(s.equippedGear)) {
+      if (uid) {
+        const stats = this.getEnhancedEquipmentStats(uid);
+        if (stats.attack) base.attack += stats.attack;
+        if (stats.defense) base.defense += stats.defense;
+        if (stats.speed) base.speed += stats.speed;
+        if (stats.luck) base.luck += stats.luck;
+        if (stats.hp) base.hp += stats.hp;
+        if (stats.crit) base.crit = (base.crit || 0) + stats.crit;
       }
     }
     // 레벨 보너스
@@ -348,10 +492,15 @@ export class GameEngine {
   getPlayerResistances() {
     const resist = { fire: 0, cold: 0, lightning: 0, void: 0, pressure: 0, radiation: 0 };
     const s = this.state;
-    for (const slot of Object.values(s.equippedGear)) {
-      if (slot && EQUIPMENT[slot] && EQUIPMENT[slot].resistances) {
-        for (const [k, v] of Object.entries(EQUIPMENT[slot].resistances)) {
-          resist[k] = (resist[k] || 0) + v;
+    for (const uid of Object.values(s.equippedGear)) {
+      if (uid) {
+        const eq = this.getEquipmentByUid(uid);
+        const base = eq ? EQUIPMENT[eq.baseId] : null;
+        if (base && base.resistances) {
+          // 저항은 강화 보너스 미적용 (기본값 유지)
+          for (const [k, v] of Object.entries(base.resistances)) {
+            resist[k] = (resist[k] || 0) + v;
+          }
         }
       }
     }
@@ -484,28 +633,41 @@ export class GameEngine {
   }
 
   // ---- 장비 ----
-  addEquipment(eqId) {
-    this.state.equipment.push(eqId);
+  addEquipment(baseId) {
+    // 개별 인스턴스 생성
+    const equipment = {
+      uid: uid(),
+      baseId: baseId,
+      enhancement: 0,
+      name: EQUIPMENT[baseId] ? EQUIPMENT[baseId].name : baseId,
+    };
+    this.state.equipment.push(equipment);
+    return equipment.uid;
   }
-  equipItem(eqId) {
-    const eq = EQUIPMENT[eqId];
+
+  equipItem(uid) {
+    const eq = this.getEquipmentByUid(uid);
     if (!eq) return;
-    if (!this.state.equipment.includes(eqId)) return;
-    const slot = eq.slot;
+    const base = EQUIPMENT[eq.baseId];
+    if (!base) return;
+
+    const slot = base.slot;
     // 기존 장비 해제
     if (this.state.equippedGear[slot]) {
       // 이미 같은 거면 해제만
-      if (this.state.equippedGear[slot] === eqId) {
+      if (this.state.equippedGear[slot] === uid) {
         this.state.equippedGear[slot] = null;
         this.recalcPlayerStats();
-        this.emit('toast', { msg: `${eq.name} 해제`, type: 'info' });
+        const displayName = this.enhancement.formatEquipmentName(eq);
+        this.emit('toast', { msg: `${displayName} 해제`, type: 'info' });
         this.emit('stateChanged', this.state);
         return;
       }
     }
-    this.state.equippedGear[slot] = eqId;
+    this.state.equippedGear[slot] = uid;
     this.recalcPlayerStats();
-    this.emit('toast', { msg: `${eq.name} 장착!`, type: 'success' });
+    const displayName = this.enhancement.formatEquipmentName(eq);
+    this.emit('toast', { msg: `${displayName} 장착!`, type: 'success' });
     this.emit('stateChanged', this.state);
   }
 
@@ -550,7 +712,7 @@ export class GameEngine {
     }
     // 결과물
     if (recipe.type === 'equipment') {
-      this.addEquipment(recipe.result);
+      this.addEquipment(recipe.result); // 개별 인스턴스 생성
       this.emit('toast', { msg: `${recipe.name} 제작 완료!`, type: 'success' });
     } else {
       this.addItem(recipe.result, recipe.amount);
@@ -581,7 +743,7 @@ export class GameEngine {
 
     // 결과물
     if (recipe.type === 'equipment') {
-      // 장비는 개별 생성
+      // 장비는 개별 인스턴스 생성
       for (let i = 0; i < actualCount; i++) {
         this.addEquipment(recipe.result);
       }
@@ -728,31 +890,34 @@ export class GameEngine {
     this.emit('stateChanged', this.state);
   }
 
-  equipWorker(workerId, eqId) {
+  equipWorker(workerId, uid) {
     const worker = this.state.workers.find(w => w.id === workerId);
     if (!worker) return;
-    const eq = EQUIPMENT[eqId];
+    const eqInstance = this.getEquipmentByUid(uid);
+    if (!eqInstance) return;
+    const eq = EQUIPMENT[eqInstance.baseId];
     if (!eq) return;
-    if (!this.state.equipment.includes(eqId)) return;
 
     const slot = eq.slot;
-    // 기존 장비 해제 (기존 장비가 플레이어가 끼고 있는 것이면 안 됨)
-    if (worker.equipment[slot] === eqId) {
+    const displayName = this.enhancement.formatEquipmentName(eqInstance);
+
+    // 기존 장비 해제
+    if (worker.equipment[slot] === uid) {
       worker.equipment[slot] = null;
-      this.emit('toast', { msg: `${worker.name}의 ${eq.name} 해제`, type: 'info' });
+      this.emit('toast', { msg: `${worker.name}의 ${displayName} 해제`, type: 'info' });
     } else {
       // 다른 일꾼이 끼고 있는지 체크
       for (const w of this.state.workers) {
-        if (w.equipment[slot] === eqId) {
+        if (w.equipment[slot] === uid) {
           w.equipment[slot] = null;
         }
       }
       // 플레이어가 끼고 있으면 해제
-      if (this.state.equippedGear[slot] === eqId) {
+      if (this.state.equippedGear[slot] === uid) {
         this.state.equippedGear[slot] = null;
       }
-      worker.equipment[slot] = eqId;
-      this.emit('toast', { msg: `${worker.name}에게 ${eq.name} 장착!`, type: 'success' });
+      worker.equipment[slot] = uid;
+      this.emit('toast', { msg: `${worker.name}에게 ${displayName} 장착!`, type: 'success' });
     }
     this.emit('stateChanged', this.state);
   }
@@ -767,10 +932,9 @@ export class GameEngine {
     const statBonus = (worker.stats.str + worker.stats.dex + worker.stats.int) / 30;
     eff *= (1 + statBonus);
 
-    // 도구 보너스
-    if (worker.equipment.tool && EQUIPMENT[worker.equipment.tool]) {
-      const tool = EQUIPMENT[worker.equipment.tool];
-      const toolStats = tool.stats;
+    // 도구 보너스 (강화 보너스 포함)
+    if (worker.equipment.tool) {
+      const toolStats = this.getEnhancedEquipmentStats(worker.equipment.tool);
       if (toolStats.mining && (zone.resources.some(r => RESOURCES[r]?.category === 'ore' || RESOURCES[r]?.category === 'stone'))) {
         eff *= (1 + toolStats.mining / 100);
       }
@@ -810,9 +974,13 @@ export class GameEngine {
 
   getWorkerResistance(worker, type) {
     let resist = 0;
-    for (const slot of Object.values(worker.equipment)) {
-      if (slot && EQUIPMENT[slot] && EQUIPMENT[slot].resistances) {
-        resist += (EQUIPMENT[slot].resistances[type] || 0);
+    for (const uid of Object.values(worker.equipment)) {
+      if (uid) {
+        const eq = this.getEquipmentByUid(uid);
+        const base = eq ? EQUIPMENT[eq.baseId] : null;
+        if (base && base.resistances) {
+          resist += (base.resistances[type] || 0);
+        }
       }
     }
     return resist;
@@ -1005,10 +1173,15 @@ export class GameEngine {
 
     // 계승 아이템 복원
     for (const item of oldVault) {
-      if (RESOURCES[item.id]) {
+      if (item.type === 'equipment') {
+        // 장비는 강화 레벨 유지
+        const newUid = this.addEquipment(item.baseId);
+        const eq = this.getEquipmentByUid(newUid);
+        if (eq) {
+          eq.enhancement = item.enhancement || 0;
+        }
+      } else if (RESOURCES[item.id]) {
         this.addItem(item.id, item.amount);
-      } else if (EQUIPMENT[item.id]) {
-        this.addEquipment(item.id);
       }
     }
     this.state.inheritanceVault = [];
@@ -1026,26 +1199,67 @@ export class GameEngine {
     this.emit('stateChanged', this.state);
   }
 
-  addToVault(itemId, amount) {
+  addToVault(uid, amount) {
     const s = this.state;
     const slots = s.permanentBonuses.inheritanceSlots + Math.floor(s.player.legacyPoints / 50);
     if (s.inheritanceVault.length >= slots) {
       this.emit('toast', { msg: `계승 슬롯이 가득 찼습니다! (${slots}칸)`, type: 'error' });
       return;
     }
-    if (RESOURCES[itemId]) {
-      if (!this.hasItem(itemId, amount)) return;
-      this.removeItem(itemId, amount);
-      const existing = s.inheritanceVault.find(v => v.id === itemId);
+
+    // 자원인 경우
+    if (RESOURCES[uid]) {
+      if (!this.hasItem(uid, amount)) return;
+      this.removeItem(uid, amount);
+      const existing = s.inheritanceVault.find(v => v.id === uid);
       if (existing) { existing.amount += amount; }
-      else { s.inheritanceVault.push({ id: itemId, amount }); }
-    } else if (EQUIPMENT[itemId]) {
-      if (!s.equipment.includes(itemId)) return;
-      s.equipment = s.equipment.filter(e => e !== itemId);
-      s.inheritanceVault.push({ id: itemId, amount: 1 });
+      else { s.inheritanceVault.push({ id: uid, amount }); }
+      this.emit('toast', { msg: `${this.getItemName(uid)} 계승 보관함에 추가!`, type: 'success' });
     }
-    this.emit('toast', { msg: `${this.getItemName(itemId)} 계승 보관함에 추가!`, type: 'success' });
+    // 장비 인스턴스인 경우
+    else {
+      const eq = this.getEquipmentByUid(uid);
+      if (!eq) return;
+
+      // 장착 해제
+      for (const [slot, eqUid] of Object.entries(s.equippedGear)) {
+        if (eqUid === uid) {
+          s.equippedGear[slot] = null;
+        }
+      }
+
+      // 장비 제거
+      s.equipment = s.equipment.filter(e => e.uid !== uid);
+
+      // 계승 보관함에 추가 (baseId와 enhancement 정보 유지)
+      s.inheritanceVault.push({
+        type: 'equipment',
+        baseId: eq.baseId,
+        enhancement: eq.enhancement,
+        amount: 1
+      });
+
+      const displayName = this.enhancement.formatEquipmentName(eq);
+      this.emit('toast', { msg: `${displayName} 계승 보관함에 추가!`, type: 'success' });
+    }
+
     this.emit('stateChanged', s);
+  }
+
+  // ---- 장비 강화 (EnhancementSystem에 위임) ----
+  enhanceEquipment(uid)  { return this.enhancement.enhance(uid); }
+  getEnhanceInfo(uid) {
+    const eq = this.getEquipmentByUid(uid);
+    if (!eq) return null;
+    const currentLevel = eq.enhancement || 0;
+    return {
+      currentLevel,
+      maxLevel: 10,
+      successRate: this.enhancement.getSuccessRate(currentLevel),
+      cost: this.enhancement.getEnhanceCost(currentLevel),
+      material: this.enhancement.getRequiredMaterial(currentLevel),
+      canEnhance: currentLevel < 10,
+    };
   }
 
   // ---- 접근자 ----

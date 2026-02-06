@@ -114,6 +114,11 @@ export const RESOURCES = {
   nutrient_soup:    { name: '영양 수프',    tier: 2, category: 'food',  icon: '🥣', crafted: true },
   energy_steak:     { name: '에너지 스테이크', tier: 3, category: 'food', icon: '🥩', crafted: true },
   energy_drink:     { name: '정제된 에너지 드링크', tier: 4, category: 'food', icon: '🧃', crafted: true },
+
+  // === 강화 재료 ===
+  enhancement_stone:      { name: '강화석', tier: 1, category: 'craft', icon: '💎', crafted: true },
+  advanced_enhancement:   { name: '고급 강화석', tier: 2, category: 'craft', icon: '💠', crafted: true },
+  superior_enhancement:   { name: '최상급 강화석', tier: 3, category: 'craft', icon: '✨', crafted: true },
 };
 
 // ---- 장비 정의 ----
@@ -509,6 +514,14 @@ export const RECIPES = [
     ingredients: [{ id:'cooked_meat', amount:8 },{ id:'mountain_herb', amount:10 },{ id:'salt', amount:5 }] },
   { id: 'energy_drink', name: '정제된 에너지 드링크', result: 'energy_drink', type: 'food', amount: 1,
     ingredients: [{ id:'sky_bloom', amount:20 },{ id:'crystal', amount:10 },{ id:'deep_pearl', amount:15 }] },
+
+  // === 강화석 제작 ===
+  { id: 'enhancement_stone', name: '강화석', result: 'enhancement_stone', type: 'material', amount: 1,
+    ingredients: [{ id:'stone', amount:3 },{ id:'coal', amount:1 }] },
+  { id: 'advanced_enhancement', name: '고급 강화석', result: 'advanced_enhancement', type: 'material', amount: 1,
+    ingredients: [{ id:'iron_ore', amount:3 },{ id:'coal', amount:2 }] },
+  { id: 'superior_enhancement', name: '최상급 강화석', result: 'superior_enhancement', type: 'material', amount: 1,
+    ingredients: [{ id:'mithril_ore', amount:3 },{ id:'crystal', amount:1 }] },
 
   // === 무기 제작 ===
   { id: 'wooden_sword', name: '목검',      result: 'wooden_sword', type: 'equipment', amount: 1,
