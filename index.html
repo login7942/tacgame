@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>생존의 별 - Survival Crafting Game</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Top Bar -->
+    <header id="top-bar">
+      <div class="status-meters">
+        <div class="meter" id="hp-meter">
+          <span class="meter-icon">❤️</span>
+          <div class="meter-bar"><div class="meter-fill hp-fill"></div></div>
+          <span class="meter-text">100/100</span>
+        </div>
+        <div class="meter" id="hunger-meter">
+          <span class="meter-icon">🍖</span>
+          <div class="meter-bar"><div class="meter-fill hunger-fill"></div></div>
+          <span class="meter-text">100/100</span>
+        </div>
+        <div class="meter" id="stamina-meter">
+          <span class="meter-icon">⚡</span>
+          <div class="meter-bar"><div class="meter-fill stamina-fill"></div></div>
+          <span class="meter-text">100/100</span>
+        </div>
+      </div>
+      <div class="top-info">
+        <span id="gold-display">💰 0</span>
+        <span id="level-display">Lv.1</span>
+        <span id="legacy-display">⭐ 0</span>
+      </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav id="tab-nav">
+      <button class="tab-btn active" data-tab="zones">🗺️ 지역</button>
+      <button class="tab-btn" data-tab="inventory">🎒 인벤토리</button>
+      <button class="tab-btn" data-tab="crafting">🔨 제작</button>
+      <button class="tab-btn" data-tab="workers">👷 일꾼</button>
+      <button class="tab-btn" data-tab="combat">⚔️ 전투</button>
+      <button class="tab-btn" data-tab="vehicles">🚀 탈것</button>
+      <button class="tab-btn" data-tab="market">🏪 시장</button>
+    </nav>
+
+    <!-- Tab Content -->
+    <main id="tab-content">
+      <!-- Zones Tab -->
+      <div class="tab-panel active" id="panel-zones">
+        <div class="panel-header">
+          <h2>탐험 지역</h2>
+          <div id="current-zone-info"></div>
+        </div>
+        <div id="zone-list" class="card-grid"></div>
+      </div>
+
+      <!-- Inventory Tab -->
+      <div class="tab-panel" id="panel-inventory">
+        <div class="panel-header">
+          <h2>인벤토리</h2>
+          <div class="filter-bar">
+            <button class="filter-btn active" data-filter="all">전체</button>
+            <button class="filter-btn" data-filter="resource">자원</button>
+            <button class="filter-btn" data-filter="equipment">장비</button>
+            <button class="filter-btn" data-filter="material">가공품</button>
+          </div>
+        </div>
+        <div id="inventory-list" class="item-grid"></div>
+      </div>
+
+      <!-- Crafting Tab -->
+      <div class="tab-panel" id="panel-crafting">
+        <div class="panel-header">
+          <h2>제작</h2>
+          <div class="filter-bar">
+            <button class="filter-btn active" data-filter="all">전체</button>
+            <button class="filter-btn" data-filter="material">재료</button>
+            <button class="filter-btn" data-filter="equipment">장비</button>
+            <button class="filter-btn" data-filter="tool">도구</button>
+            <button class="filter-btn" data-filter="vehicle">탈것</button>
+            <button class="filter-btn" data-filter="food">음식</button>
+          </div>
+        </div>
+        <div id="recipe-list" class="recipe-grid"></div>
+      </div>
+
+      <!-- Workers Tab -->
+      <div class="tab-panel" id="panel-workers">
+        <div class="panel-header">
+          <h2>일꾼 관리</h2>
+          <button id="btn-hire-worker" class="btn btn-primary">고용하기 💰</button>
+        </div>
+        <div id="worker-list" class="worker-grid"></div>
+        <div id="worker-deploy-section">
+          <h3>배치 현황</h3>
+          <div id="deploy-status"></div>
+        </div>
+      </div>
+
+      <!-- Combat Tab -->
+      <div class="tab-panel" id="panel-combat">
+        <div class="panel-header">
+          <h2>전투</h2>
+          <div id="combat-zone-select"></div>
+        </div>
+        <div id="monster-list" class="monster-grid"></div>
+        <div id="combat-arena" class="hidden">
+          <div id="combat-log"></div>
+          <div id="combat-actions"></div>
+        </div>
+        <div id="raid-section">
+          <h3>⚔️ 레이드 보스</h3>
+          <div id="raid-list"></div>
+        </div>
+      </div>
+
+      <!-- Vehicles Tab -->
+      <div class="tab-panel" id="panel-vehicles">
+        <div class="panel-header">
+          <h2>탈것 제작소</h2>
+        </div>
+        <div id="vehicle-owned" class="vehicle-grid">
+          <h3>보유 탈것</h3>
+          <div id="owned-vehicle-list"></div>
+        </div>
+        <div id="vehicle-craft" class="vehicle-grid">
+          <h3>제작 가능</h3>
+          <div id="craftable-vehicle-list"></div>
+        </div>
+      </div>
+
+      <!-- Market Tab -->
+      <div class="tab-panel" id="panel-market">
+        <div class="panel-header">
+          <h2>시장</h2>
+          <span id="market-timer">다음 시세 변동: --</span>
+        </div>
+        <div id="market-list" class="market-grid"></div>
+      </div>
+    </main>
+
+    <!-- Modal Overlay -->
+    <div id="modal-overlay" class="hidden">
+      <div id="modal-content">
+        <button id="modal-close" class="btn-close">✕</button>
+        <div id="modal-body"></div>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <!-- Death Screen -->
+    <div id="death-screen" class="hidden">
+      <div class="death-content">
+        <h1>💀 사망</h1>
+        <p id="death-cause"></p>
+        <div id="death-summary"></div>
+        <div id="inheritance-selection"></div>
+        <button id="btn-revive" class="btn btn-primary">부활하기</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
