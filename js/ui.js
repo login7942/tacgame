@@ -1171,8 +1171,34 @@ export class GameUI {
     const nextUpdate = 60 - (s.tickCount % 60);
     timerEl.textContent = `다음 시세 변동: ${nextUpdate}초`;
 
+    // 활성 투자 목록
+    const investments = this.engine.getActiveInvestments();
+    let investmentHTML = '';
+    if (investments.length > 0) {
+      investmentHTML = `
+        <div style="background:rgba(33,150,243,0.1);padding:12px;border-radius:8px;margin-bottom:16px;">
+          <div style="font-weight:600;font-size:14px;margin-bottom:8px;">💰 활성 투자</div>
+          ${investments.map(inv => {
+            const remainingSec = Math.floor(inv.remaining / 1000);
+            const hours = Math.floor(remainingSec / 3600);
+            const mins = Math.floor((remainingSec % 3600) / 60);
+            const secs = remainingSec % 60;
+            const timeText = `${hours}h ${mins}m ${secs}s`;
+            const trendText = inv.predictedTrend === 'up' ? '📈 상승' : '📉 하락';
+            return `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);">
+                <div>
+                  <span style="font-weight:600;">${inv.itemName}</span>
+                  <span class="text-muted" style="font-size:11px;margin-left:8px;">${trendText} 예측 | ${inv.amount}G</span>
+                </div>
+                <div class="text-blue" style="font-size:11px;">${timeText}</div>
+              </div>`;
+          }).join('')}
+        </div>`;
+    }
+
     // 시장에서 거래 가능한 아이템 (해금된 자원만)
-    const tradeable = Object.entries(s.market.prices)
+    const tradeable = Object.entries(s.market.prices || {})
       .filter(([id]) => {
         // 보유하거나 해금된 지역에서 나오는 자원만
         if (s.inventory[id] && s.inventory[id] > 0) return true;
@@ -1190,29 +1216,38 @@ export class GameUI {
       });
 
     if (tradeable.length === 0) {
-      listEl.innerHTML = '<div class="text-muted text-center" style="padding:20px;">거래 가능한 아이템이 없습니다.</div>';
+      listEl.innerHTML = investmentHTML + '<div class="text-muted text-center" style="padding:20px;">거래 가능한 아이템이 없습니다.</div>';
       return;
     }
 
-    listEl.innerHTML = tradeable.map(([id, price]) => {
+    listEl.innerHTML = investmentHTML + tradeable.map(([id, price]) => {
       const basePrice = MARKET_BASE_PRICES[id] || price;
-      const trend = s.market.trends[id] || 0;
+      const trend = s.market.trends ? (s.market.trends[id] || 0) : 0;
       const trendIcon = trend > 0 ? '📈' : trend < 0 ? '📉' : '➡️';
       const priceClass = trend > 0 ? 'up' : trend < 0 ? 'down' : 'stable';
       const owned = s.inventory[id] || 0;
       const qty = this.marketQuantities[id] || 1;
       const buyPrice = Math.ceil(price * 1.1);
+      const dailyRemaining = this.engine.getDailyRemaining(id);
+      const dailyPurchased = this.engine.getDailyPurchased(id);
+      const limitWarning = dailyRemaining <= 10 ? `<span class="text-red">⚠️ 제한 임박</span>` : '';
 
       return `
         <div class="market-row">
           <span style="font-size:16px;">${this.engine.getItemIcon(id)}</span>
-          <span class="market-item-name">${this.engine.getItemName(id)} <span class="text-muted">(${owned})</span></span>
+          <div style="flex:1;min-width:0;">
+            <div class="market-item-name">${this.engine.getItemName(id)} <span class="text-muted">(보유: ${owned})</span></div>
+            <div style="font-size:10px;color:#889;margin-top:2px;">
+              오늘 구매: ${dailyPurchased}/50 ${limitWarning}
+            </div>
+          </div>
           <span class="market-trend">${trendIcon}</span>
           <span class="market-price ${priceClass}">${Math.round(price)}G</span>
           <input type="number" class="market-qty" value="${qty}" min="1" max="99" data-id="${id}">
           <div class="market-actions">
             <button class="btn btn-success btn-small market-buy-btn" data-id="${id}">매입</button>
             <button class="btn btn-warning btn-small market-sell-btn" data-id="${id}" ${owned <= 0 ? 'disabled' : ''}>매도</button>
+            <button class="btn btn-primary btn-small market-invest-btn" data-id="${id}">💰</button>
           </div>
         </div>`;
     }).join('');
@@ -1236,6 +1271,74 @@ export class GameUI {
         const qty = this.marketQuantities[id] || 1;
         this.engine.sellToMarket(id, qty);
       });
+    });
+    listEl.querySelectorAll('.market-invest-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        this.showInvestModal(id);
+      });
+    });
+  }
+
+  showInvestModal(itemId) {
+    const s = this.engine.getState();
+    const price = this.engine.getMarketPrice(itemId);
+    const trend = this.engine.getMarketTrend(itemId);
+    const itemName = this.engine.getItemName(itemId);
+    const trendIcon = trend > 0 ? '📈' : trend < 0 ? '📉' : '➡️';
+
+    const html = `
+      <div class="modal-title">💰 가격 예측 투자</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px;">${this.engine.getItemIcon(itemId)} ${itemName}</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">현재 시장 정보</div>
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">현재 가격</span>
+          <span class="modal-stat-value">${Math.round(price)}G</span>
+        </div>
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">현재 추세</span>
+          <span class="modal-stat-value">${trendIcon}</span>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">투자 설정</div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;color:#889;display:block;margin-bottom:4px;">투자 금액 (G)</label>
+          <input type="number" id="invest-amount" class="market-qty" style="width:100%;" value="1000" min="100" step="100">
+        </div>
+        <div>
+          <label style="font-size:12px;color:#889;display:block;margin-bottom:8px;">가격 예측 (24시간 후)</label>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-success" id="invest-up" style="flex:1;">📈 상승 (+50%)</button>
+            <button class="btn btn-danger" id="invest-down" style="flex:1;">📉 하락 (+50%)</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-section" style="font-size:11px;color:#889;">
+        <div><strong>💡 투자 규칙:</strong></div>
+        <div>• 예측 성공 시: +50% 수익</div>
+        <div>• 예측 실패 시: -30% 손실</div>
+        <div>• 변동 없음: 원금 환불</div>
+        <div>• 결과 확인: 24시간 후</div>
+      </div>
+    `;
+
+    this.showModal(html);
+
+    document.getElementById('invest-up')?.addEventListener('click', () => {
+      const amount = parseInt(document.getElementById('invest-amount').value) || 1000;
+      this.engine.investInMarket(itemId, amount, 'up');
+      this.closeModal();
+    });
+
+    document.getElementById('invest-down')?.addEventListener('click', () => {
+      const amount = parseInt(document.getElementById('invest-amount').value) || 1000;
+      this.engine.investInMarket(itemId, amount, 'down');
+      this.closeModal();
     });
   }
 

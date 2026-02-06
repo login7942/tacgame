@@ -8,6 +8,7 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
 import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
+import { MarketSystem } from './systems/market.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -60,6 +61,7 @@ export class GameEngine {
     this.combat = null; // CombatSystem 인스턴스
     this.gathering = null; // GatheringSystem 인스턴스
     this.enhancement = null; // EnhancementSystem 인스턴스
+    this.market = null; // MarketSystem 인스턴스
   }
 
   // ---- 이벤트 시스템 ----
@@ -77,7 +79,7 @@ export class GameEngine {
     this.initCombatSystem();
     this.initGatheringSystem();
     this.initEnhancementSystem();
-    this.initMarket();
+    this.initMarketSystem();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
   }
@@ -278,9 +280,47 @@ export class GameEngine {
     });
   }
 
+  // ---- 시장 시스템 초기화 (콜백 브릿지) ----
+  initMarketSystem() {
+    this.market = new MarketSystem({
+      getPlayerGold: () => this.state.player.gold,
+      consumeGold: (amt) => {
+        if (this.state.player.gold < amt) return false;
+        this.state.player.gold -= amt;
+        return true;
+      },
+      addGold: (amt) => {
+        this.state.player.gold += amt;
+        this.state.stats.totalGoldEarned += amt;
+      },
+      hasItem: (id, amt) => this.hasItem(id, amt),
+      removeItem: (id, amt) => this.removeItem(id, amt),
+      addItem: (id, amt) => this.addItem(id, amt),
+      getItemName: (id) => this.getItemName(id),
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    // 기존 state.market에서 복원
+    if (this.state.market) {
+      this.market.setState(this.state.market);
+    }
+    this.market.init();
+
+    // MarketSystem 이벤트 → GameEngine 이벤트 전달
+    this.market.on('toast', (t) => this.emit('toast', t));
+    this.market.on('marketUpdate', (data) => {
+      this.state.market = this.market.getState();
+      this.emit('stateChanged', this.state);
+    });
+  }
+
   // ---- 저장/불러오기 ----
   saveState() {
     this.state.lastSave = Date.now();
+    // MarketSystem 상태 동기화
+    if (this.market) {
+      this.state.market = this.market.getState();
+    }
     try {
       localStorage.setItem('tacgame_save', JSON.stringify(this.state));
     } catch (e) { /* quota exceeded */ }
@@ -419,8 +459,13 @@ export class GameEngine {
     }
 
     // 시장 가격 변동 (60초마다)
-    if (s.tickCount % 60 === 0) {
-      this.updateMarketPrices();
+    if (s.tickCount % 60 === 0 && this.market) {
+      this.market.updatePrices();
+    }
+
+    // 투자 결과 체크 (매 tick)
+    if (this.market) {
+      this.market.checkInvestments();
     }
 
     // 쿨다운
@@ -1065,67 +1110,44 @@ export class GameEngine {
   }
 
   // ---- 시장 ----
-  initMarket() {
-    const s = this.state;
-    if (!s.market.prices || Object.keys(s.market.prices).length === 0) {
-      s.market.prices = {};
-      s.market.trends = {};
-      for (const [id, base] of Object.entries(MARKET_BASE_PRICES)) {
-        s.market.prices[id] = base;
-        s.market.trends[id] = 0; // -1, 0, 1
-      }
-    }
-  }
-
-  updateMarketPrices() {
-    const s = this.state;
-    for (const [id, base] of Object.entries(MARKET_BASE_PRICES)) {
-      const old = s.market.prices[id] || base;
-      const volatility = 0.08 + (RESOURCES[id]?.tier || 1) * 0.02;
-      const change = (Math.random() * 2 - 1) * volatility;
-      let newPrice = old * (1 + change);
-      // 가격 범위 제한 (기본가의 40% ~ 200%)
-      newPrice = clamp(newPrice, base * 0.4, base * 2.0);
-      newPrice = Math.round(newPrice * 10) / 10;
-      s.market.trends[id] = newPrice > old ? 1 : newPrice < old ? -1 : 0;
-      s.market.prices[id] = newPrice;
-    }
-    this.emit('marketUpdate', s.market);
-  }
-
+  // ---- 시장 (MarketSystem에 위임) ----
   buyFromMarket(itemId, quantity) {
-    const s = this.state;
-    const price = s.market.prices[itemId];
-    if (!price) return;
-    const totalCost = Math.ceil(price * quantity * 1.1); // 매입 수수료 10%
-    if (s.player.gold < totalCost) {
-      this.emit('toast', { msg: '골드가 부족합니다!', type: 'error' });
-      return;
+    if (this.market) {
+      this.market.buy(itemId, quantity);
     }
-    s.player.gold -= totalCost;
-    this.addItem(itemId, quantity);
-    // 수요 증가 → 가격 약간 상승
-    s.market.prices[itemId] *= 1.02;
-    this.emit('toast', { msg: `${this.getItemName(itemId)} x${quantity} 구매! (-${totalCost}G)`, type: 'success' });
-    this.emit('stateChanged', s);
   }
 
   sellToMarket(itemId, quantity) {
-    const s = this.state;
-    const price = s.market.prices[itemId];
-    if (!price) return;
-    if (!this.hasItem(itemId, quantity)) {
-      this.emit('toast', { msg: '수량이 부족합니다!', type: 'error' });
-      return;
+    if (this.market) {
+      this.market.sell(itemId, quantity);
     }
-    const totalGain = Math.floor(price * quantity * 0.9); // 매도 수수료 10%
-    this.removeItem(itemId, quantity);
-    s.player.gold += totalGain;
-    s.stats.totalGoldEarned += totalGain;
-    // 공급 증가 → 가격 약간 하락
-    s.market.prices[itemId] *= 0.98;
-    this.emit('toast', { msg: `${this.getItemName(itemId)} x${quantity} 판매! (+${totalGain}G)`, type: 'success' });
-    this.emit('stateChanged', s);
+  }
+
+  investInMarket(itemId, amount, predictedTrend) {
+    if (this.market) {
+      return this.market.invest(itemId, amount, predictedTrend);
+    }
+    return { success: false };
+  }
+
+  getMarketPrice(itemId) {
+    return this.market ? this.market.getPrice(itemId) : 0;
+  }
+
+  getMarketTrend(itemId) {
+    return this.market ? this.market.getTrend(itemId) : 0;
+  }
+
+  getDailyPurchased(itemId) {
+    return this.market ? this.market.getDailyPurchased(itemId) : 0;
+  }
+
+  getDailyRemaining(itemId) {
+    return this.market ? this.market.getDailyRemaining(itemId) : 0;
+  }
+
+  getActiveInvestments() {
+    return this.market ? this.market.getActiveInvestments() : [];
   }
 
   // ---- 사망 / 계승 ----
@@ -1192,7 +1214,7 @@ export class GameEngine {
     this.state.permanentBonuses.workerEfficiency += 1;
     this.state.permanentBonuses.maxHpBonus += 5;
 
-    this.initMarket();
+    this.initMarketSystem();
     this.recalcPlayerStats();
     this.saveState();
     this.emit('toast', { msg: `부활! 레거시 포인트로 영구 보너스 강화!`, type: 'info' });
