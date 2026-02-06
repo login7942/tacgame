@@ -1,9 +1,11 @@
 // ============================================================
-// game.js - 게임 엔진 (상태, 인벤토리, 제작, 전투, 일꾼, 시장, 생존, 탈것)
+// game.js - 게임 엔진 (상태, 인벤토리, 제작, 일꾼, 시장, 생존, 탈것)
+// 전투는 systems/combat.js 에 위임
 // ============================================================
 import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          WORKER_TYPES, WORKER_NAMES, HIRE_COSTS, MARKET_BASE_PRICES,
          EXP_TABLE, INHERITABLE_CATEGORIES, ENV_NAMES } from './data.js';
+import { CombatSystem } from './systems/combat.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -32,7 +34,7 @@ function createDefaultState() {
     workers: [], // worker objects
     vehicles: [], // owned vehicle ids
     market: { prices: {}, lastUpdate: 0, trends: {} },
-    combat: { inCombat: false, enemy: null, enemyHp: 0, log: [] },
+    // combat 상태는 CombatSystem이 관리 (여기엔 저장용 최소 데이터만)
     permanentBonuses: {
       gatherSpeed: 0, combatPower: 0, workerEfficiency: 0,
       maxHpBonus: 0, inheritanceSlots: 1,
@@ -53,6 +55,7 @@ export class GameEngine {
     this.listeners = {};
     this.tickInterval = null;
     this.gatherCooldown = 0;
+    this.combat = null; // CombatSystem 인스턴스
   }
 
   // ---- 이벤트 시스템 ----
@@ -67,9 +70,74 @@ export class GameEngine {
   // ---- 초기화 ----
   init() {
     this.state = this.loadState() || createDefaultState();
+    this.initCombatSystem();
     this.initMarket();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
+  }
+
+  // ---- 전투 시스템 초기화 (콜백 브릿지) ----
+  initCombatSystem() {
+    this.combat = new CombatSystem({
+      getPlayerStats:  () => this.getPlayerStats(),
+      getPlayerResist: () => this.getPlayerResistances(),
+      getPlayerHp:     () => ({ hp: this.state.player.hp, maxHp: this.state.player.maxHp }),
+      getWeaponData:   () => {
+        const wId = this.state.equippedGear.weapon;
+        return wId ? EQUIPMENT[wId] : null;
+      },
+      damagePlayer: (dmg) => {
+        this.state.player.hp = clamp(this.state.player.hp - dmg, 0, this.state.player.maxHp);
+      },
+      healPlayer: (amt) => {
+        this.state.player.hp = clamp(this.state.player.hp + amt, 0, this.state.player.maxHp);
+      },
+      hasPotion: () => {
+        return this.hasItem('herb_potion', 1) || this.hasItem('fire_potion', 1) || this.hasItem('ice_potion', 1);
+      },
+      usePotion: () => {
+        // 우선순위: 고급 물약 → 기본 물약
+        const potions = [
+          { id: 'fire_potion', heal: 50, name: '화염 물약' },
+          { id: 'ice_potion',  heal: 50, name: '빙결 물약' },
+          { id: 'herb_potion', heal: 30, name: '약초 물약' },
+        ];
+        for (const p of potions) {
+          if (this.hasItem(p.id, 1)) {
+            this.removeItem(p.id, 1);
+            this.state.player.hp = clamp(this.state.player.hp + p.heal, 0, this.state.player.maxHp);
+            return { healed: p.heal, name: p.name };
+          }
+        }
+        return { healed: 0, name: '' };
+      },
+      addLoot: (items) => {
+        for (const item of items) {
+          this.addItem(item.id, item.amount);
+        }
+      },
+      addExp:  (amt) => this.gainExp(amt),
+      addGold: (amt) => {
+        this.state.player.gold += amt;
+        this.state.stats.totalGoldEarned += amt;
+      },
+      onDeath: (cause) => this.die(cause),
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    // CombatSystem 이벤트 → GameEngine 이벤트 전달
+    this.combat.on('toast', (t) => this.emit('toast', t));
+    this.combat.on('combatStart', () => {
+      this.state.stats.monstersKilled; // 참조만
+      this.emit('stateChanged', this.state);
+    });
+    this.combat.on('combatEnd', (data) => {
+      if (data.reason === 'victory') this.state.stats.monstersKilled++;
+      this.emit('stateChanged', this.state);
+    });
+    this.combat.on('turnComplete', () => this.emit('stateChanged', this.state));
+    this.combat.on('autoStart', () => this.emit('stateChanged', this.state));
+    this.combat.on('autoStop', () => this.emit('stateChanged', this.state));
   }
 
   // ---- 저장/불러오기 ----
@@ -123,11 +191,11 @@ export class GameEngine {
       }
     }
     // 스태미나 회복
-    if (!s.combat.inCombat) {
+    if (!this.combat.inCombat) {
       s.player.stamina = clamp(s.player.stamina + 0.5, 0, s.player.maxStamina);
     }
     // HP 자연회복 (배고픔 > 50)
-    if (s.player.hunger > 50 && !s.combat.inCombat) {
+    if (s.player.hunger > 50 && !this.combat.inCombat) {
       s.player.hp = clamp(s.player.hp + 0.3, 0, s.player.maxHp);
     }
 
@@ -395,179 +463,16 @@ export class GameEngine {
     this.emit('stateChanged', this.state);
   }
 
-  // ---- 전투 ----
-  startCombat(monsterId) {
-    const mon = MONSTERS[monsterId];
-    if (!mon) return;
-    if (this.state.combat.inCombat) {
-      this.emit('toast', { msg: '이미 전투 중입니다!', type: 'warning' });
-      return;
-    }
-    if (this.state.player.hp < 10) {
-      this.emit('toast', { msg: 'HP가 너무 낮아 전투할 수 없습니다!', type: 'error' });
-      return;
-    }
-    this.state.combat = {
-      inCombat: true,
-      enemyId: monsterId,
-      enemy: { ...mon },
-      enemyHp: mon.hp,
-      enemyMaxHp: mon.hp,
-      log: [`⚔️ ${mon.name}과(와) 전투 시작!`],
-      turn: 0,
-    };
-    this.emit('combatStart', this.state.combat);
-    this.emit('stateChanged', this.state);
-  }
-
-  combatAttack() {
-    const c = this.state.combat;
-    if (!c.inCombat) return;
-    const pStats = this.getPlayerStats();
-    const mon = c.enemy;
-
-    c.turn++;
-
-    // 플레이어 공격
-    let pDmg = Math.max(1, pStats.attack - mon.def * 0.5);
-    // 크리티컬
-    const critChance = (pStats.crit || 0) + pStats.luck * 0.5;
-    let isCrit = false;
-    if (Math.random() * 100 < critChance) {
-      pDmg = Math.floor(pDmg * 1.8);
-      isCrit = true;
-    }
-    // 속성 보너스
-    const resist = this.getPlayerResistances();
-    if (mon.weakness === 'fire' && (this.state.equippedGear.weapon && EQUIPMENT[this.state.equippedGear.weapon]?.stats?.fireDmg)) {
-      pDmg += EQUIPMENT[this.state.equippedGear.weapon].stats.fireDmg;
-    }
-    if (mon.weakness === 'cold' && (this.state.equippedGear.weapon && EQUIPMENT[this.state.equippedGear.weapon]?.stats?.iceDmg)) {
-      pDmg += EQUIPMENT[this.state.equippedGear.weapon].stats.iceDmg;
-    }
-
-    pDmg = Math.floor(pDmg * (1 + rand(-10, 10) / 100));
-    c.enemyHp -= pDmg;
-    c.log.push(`${isCrit ? '💥 크리티컬! ' : ''}${pDmg} 데미지를 입혔다!`);
-
-    // 몬스터 처치 체크
-    if (c.enemyHp <= 0) {
-      c.enemyHp = 0;
-      this.combatVictory();
-      return;
-    }
-
-    // 몬스터 공격
-    let mDmg = Math.max(1, mon.atk - pStats.defense * 0.5);
-    // 속성 방어
-    if (mon.element && resist[mon.element]) {
-      mDmg *= (1 - clamp(resist[mon.element] / 100, 0, 0.8));
-    }
-    mDmg = Math.floor(mDmg * (1 + rand(-15, 15) / 100));
-    this.state.player.hp -= mDmg;
-    c.log.push(`${mon.name}의 공격! ${mDmg} 데미지를 받았다!`);
-
-    if (this.state.player.hp <= 0) {
-      this.state.player.hp = 0;
-      c.inCombat = false;
-      c.log.push(`💀 ${mon.name}에게 패배했습니다...`);
-      this.emit('stateChanged', this.state);
-      this.die(`${mon.name}에게 패배했습니다.`);
-      return;
-    }
-
-    this.emit('stateChanged', this.state);
-  }
-
-  combatUsePotion() {
-    const c = this.state.combat;
-    if (!c.inCombat) return;
-
-    // 사용 가능한 물약 찾기
-    if (this.hasItem('herb_potion', 1)) {
-      this.removeItem('herb_potion', 1);
-      const heal = 30;
-      this.state.player.hp = clamp(this.state.player.hp + heal, 0, this.state.player.maxHp);
-      c.log.push(`🧪 약초 물약 사용! HP +${heal}`);
-
-      // 몬스터 턴
-      this.combatEnemyTurn();
-    } else {
-      this.emit('toast', { msg: '사용할 물약이 없습니다!', type: 'error' });
-    }
-  }
-
-  combatEnemyTurn() {
-    const c = this.state.combat;
-    const pStats = this.getPlayerStats();
-    const mon = c.enemy;
-    const resist = this.getPlayerResistances();
-
-    let mDmg = Math.max(1, mon.atk - pStats.defense * 0.5);
-    if (mon.element && resist[mon.element]) {
-      mDmg *= (1 - clamp(resist[mon.element] / 100, 0, 0.8));
-    }
-    mDmg = Math.floor(mDmg * (1 + rand(-15, 15) / 100));
-    this.state.player.hp -= mDmg;
-    c.log.push(`${mon.name}의 공격! ${mDmg} 데미지를 받았다!`);
-
-    if (this.state.player.hp <= 0) {
-      this.state.player.hp = 0;
-      c.inCombat = false;
-      this.die(`${mon.name}에게 패배했습니다.`);
-      return;
-    }
-    this.emit('stateChanged', this.state);
-  }
-
-  combatFlee() {
-    const c = this.state.combat;
-    if (!c.inCombat) return;
-    const pStats = this.getPlayerStats();
-    const fleeChance = 50 + (pStats.speed - c.enemy.spd) * 2;
-    if (Math.random() * 100 < fleeChance) {
-      c.inCombat = false;
-      c.log.push('🏃 도주에 성공했습니다!');
-      this.emit('toast', { msg: '도주 성공!', type: 'info' });
-    } else {
-      c.log.push('🏃 도주 실패!');
-      this.combatEnemyTurn();
-    }
-    this.emit('stateChanged', this.state);
-  }
-
-  combatVictory() {
-    const c = this.state.combat;
-    const mon = c.enemy;
-    c.inCombat = false;
-    c.log.push(`🎉 ${mon.name}을(를) 처치했습니다!`);
-
-    // 경험치
-    this.gainExp(mon.exp);
-    // 골드
-    const goldGain = mon.gold + rand(0, Math.floor(mon.gold * 0.3));
-    this.state.player.gold += goldGain;
-    this.state.stats.totalGoldEarned += goldGain;
-    c.log.push(`💰 ${goldGain} 골드 획득!`);
-
-    // 드롭
-    const drops = [];
-    for (const loot of (MONSTERS[c.enemyId]?.loot || [])) {
-      const luckBonus = this.state.player.luck * 0.005;
-      if (Math.random() < loot.chance + luckBonus) {
-        const amt = rand(loot.min, loot.max);
-        this.addItem(loot.id, amt);
-        drops.push({ id: loot.id, amount: amt });
-      }
-    }
-    if (drops.length > 0) {
-      const text = drops.map(d => `${this.getItemName(d.id)} x${d.amount}`).join(', ');
-      c.log.push(`📦 드롭: ${text}`);
-    }
-
-    this.state.stats.monstersKilled++;
-    this.emit('stateChanged', this.state);
-  }
+  // ---- 전투 (CombatSystem에 위임) ----
+  startCombat(monsterId) { return this.combat.startCombat(monsterId); }
+  combatAttack()         { this.combat.attack(); }
+  combatUsePotion()      { this.combat.usePotion(); }
+  combatFlee()           { this.combat.flee(); }
+  startAutoCombat(monsterId, count, speed) { this.combat.startAuto(monsterId, count, speed); }
+  stopAutoCombat()       { this.combat.stopAuto('자동전투를 중단했습니다.'); }
+  setAutoSpeed(speed)    { this.combat.setAutoSpeed(speed); }
+  getCombatSnapshot()    { return this.combat.getSnapshot(); }
+  getAutoSnapshot()      { return this.combat.getAutoSnapshot(); }
 
   // ---- 경험치 / 레벨업 ----
   gainExp(amount) {
@@ -912,7 +817,7 @@ export class GameEngine {
   // ---- 사망 / 계승 ----
   die(cause) {
     const s = this.state;
-    s.combat.inCombat = false;
+    if (this.combat) this.combat.stopAuto();
     s.player.deaths++;
 
     // 레거시 포인트 계산

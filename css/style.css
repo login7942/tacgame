@@ -367,6 +367,7 @@ body {
 .monster-card .monster-info { flex: 1; }
 .monster-card .monster-name { font-size: 13px; font-weight: 600; color: #fff; }
 .monster-card .monster-stats-row { font-size: 10px; color: #889; margin-top: 2px; }
+.monster-card .monster-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
 
 /* ===== Combat Arena ===== */
 #combat-arena {
@@ -512,6 +513,64 @@ body {
 }
 .modal-stat-label { color: #889; }
 .modal-stat-value { color: #fff; font-weight: 600; }
+
+/* ===== Auto-Battle Panel ===== */
+.auto-session-panel {
+  background: #0d1117;
+  border: 1px solid #2a3550;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.auto-session-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.auto-badge {
+  background: linear-gradient(135deg, #4fc3f7, #2196f3);
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  animation: autoPulse 1.5s ease infinite;
+}
+@keyframes autoPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+.auto-speed-badge {
+  background: #f39c12;
+  color: #000;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.auto-count {
+  color: #aab;
+  font-size: 11px;
+  margin-left: auto;
+}
+.auto-session-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #ccc;
+  flex-wrap: wrap;
+}
+.auto-session-loot {
+  font-size: 10px;
+  color: #f9d71c;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #1a2235;
+}
+.auto-controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
 
 /* Equipment Slots */
 .equip-slots {

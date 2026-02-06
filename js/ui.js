@@ -534,60 +534,119 @@ export class GameUI {
     const s = this.engine.getState();
     if (!s) return;
     const zone = ZONES[s.player.currentZone];
-    const c = s.combat;
+    const c = this.engine.getCombatSnapshot();
+    const auto = this.engine.getAutoSnapshot();
+    const busy = c.inCombat || auto.enabled;
 
-    // 전투 중
+    // ---- 자동전투 세션 패널 ----
     const arenaEl = document.getElementById('combat-arena');
-    if (c.inCombat) {
+    if (auto.enabled || c.inCombat) {
       arenaEl.classList.remove('hidden');
       const pStats = this.engine.getPlayerStats();
+      const sess = auto.session || {};
+      const elapsed = auto.enabled ? Math.floor((Date.now() - (sess.startTime || Date.now())) / 1000) : 0;
+      const elapsedStr = elapsed > 0 ? `${Math.floor(elapsed/60)}분 ${elapsed%60}초` : '';
+
       arenaEl.innerHTML = `
+        ${c.inCombat && c.enemy ? `
         <div class="combat-header">
           <div class="combatant">
-            <div class="combatant-name">🧑 플레이어 Lv.${s.player.level}</div>
+            <div class="combatant-name">🧑 Lv.${s.player.level}</div>
             <div class="combatant-hp-bar"><div class="combatant-hp-fill" style="width:${(s.player.hp/s.player.maxHp)*100}%"></div></div>
-            <div class="combatant-hp-text">${Math.floor(s.player.hp)}/${s.player.maxHp} | ATK:${pStats.attack} DEF:${pStats.defense}</div>
+            <div class="combatant-hp-text">${Math.floor(s.player.hp)}/${s.player.maxHp}</div>
           </div>
-          <div style="font-size:24px;padding:0 10px;">⚔️</div>
+          <div style="font-size:20px;padding:0 8px;">⚔️</div>
           <div class="combatant">
             <div class="combatant-name">${c.enemy.icon} ${c.enemy.name}</div>
             <div class="combatant-hp-bar"><div class="combatant-hp-fill" style="width:${(c.enemyHp/c.enemyMaxHp)*100}%"></div></div>
-            <div class="combatant-hp-text">${c.enemyHp}/${c.enemyMaxHp} | ATK:${c.enemy.atk} DEF:${c.enemy.def}</div>
+            <div class="combatant-hp-text">${c.enemyHp}/${c.enemyMaxHp}</div>
           </div>
-        </div>
-        <div id="combat-log">${c.log.map(l => `<div class="log-entry">${l}</div>`).join('')}</div>
+        </div>` : ''}
+
+        ${auto.enabled ? `
+        <div class="auto-session-panel">
+          <div class="auto-session-header">
+            <span class="auto-badge">🔄 자동전투 중</span>
+            <span class="auto-speed-badge">${auto.speed}x</span>
+            ${auto.repeatMode > 0 ? `<span class="auto-count">${auto.repeatMode - auto.repeatRemaining}/${auto.repeatMode}</span>` : '<span class="auto-count">∞ 무한</span>'}
+          </div>
+          <div class="auto-session-stats">
+            <span>⚔️ ${sess.kills || 0}킬</span>
+            <span>✨ ${sess.exp || 0} EXP</span>
+            <span>💰 ${sess.gold || 0}G</span>
+            ${elapsedStr ? `<span>⏱️ ${elapsedStr}</span>` : ''}
+          </div>
+          ${Object.keys(sess.loot || {}).length > 0 ? `
+          <div class="auto-session-loot">
+            📦 ${Object.entries(sess.loot).map(([id,amt]) => `${this.engine.getItemIcon(id)}${this.engine.getItemName(id)} x${amt}`).join(', ')}
+          </div>` : ''}
+          <div class="auto-controls">
+            <button class="btn btn-small ${auto.speed===1?'btn-primary':'btn-warning'}" id="btn-auto-speed">⚡ ${auto.speed===1?'2x':'1x'}</button>
+            <button class="btn btn-danger btn-small" id="btn-auto-stop">⏹️ 중단</button>
+          </div>
+        </div>` : ''}
+
+        <div id="combat-log">${c.log.slice(-15).map(l => `<div class="log-entry">${l}</div>`).join('')}</div>
+
+        ${c.inCombat && !auto.enabled ? `
         <div id="combat-actions">
           <button class="btn btn-danger" id="btn-attack">⚔️ 공격</button>
           <button class="btn btn-success" id="btn-potion">🧪 물약</button>
           <button class="btn btn-warning" id="btn-flee">🏃 도주</button>
-        </div>`;
+        </div>` : ''}
+      `;
+
       // 로그 스크롤
       const logEl = arenaEl.querySelector('#combat-log');
-      logEl.scrollTop = logEl.scrollHeight;
+      if (logEl) logEl.scrollTop = logEl.scrollHeight;
 
+      // 수동 전투 버튼
       document.getElementById('btn-attack')?.addEventListener('click', () => this.engine.combatAttack());
       document.getElementById('btn-potion')?.addEventListener('click', () => this.engine.combatUsePotion());
       document.getElementById('btn-flee')?.addEventListener('click', () => this.engine.combatFlee());
+      // 자동전투 컨트롤
+      document.getElementById('btn-auto-speed')?.addEventListener('click', () => {
+        this.engine.setAutoSpeed(auto.speed === 1 ? 2 : 1);
+      });
+      document.getElementById('btn-auto-stop')?.addEventListener('click', () => {
+        this.engine.stopAutoCombat();
+      });
     } else {
-      arenaEl.classList.add('hidden');
-      // 전투 결과 로그 표시
+      // 전투 종료 후 로그
       if (c.log && c.log.length > 0) {
         arenaEl.classList.remove('hidden');
+        const sess = this.engine.getAutoSnapshot().session || {};
+        const hasSession = (sess.kills || 0) > 0;
         arenaEl.innerHTML = `
-          <div id="combat-log">${c.log.map(l => `<div class="log-entry">${l}</div>`).join('')}</div>
+          ${hasSession ? `
+          <div class="auto-session-panel" style="margin-bottom:8px;">
+            <div class="auto-session-header"><span>📊 전투 결과</span></div>
+            <div class="auto-session-stats">
+              <span>⚔️ ${sess.kills}킬</span>
+              <span>✨ ${sess.exp} EXP</span>
+              <span>💰 ${sess.gold}G</span>
+            </div>
+            ${Object.keys(sess.loot || {}).length > 0 ? `
+            <div class="auto-session-loot">
+              📦 ${Object.entries(sess.loot).map(([id,amt]) => `${this.engine.getItemIcon(id)}${this.engine.getItemName(id)} x${amt}`).join(', ')}
+            </div>` : ''}
+          </div>` : ''}
+          <div id="combat-log">${c.log.slice(-10).map(l => `<div class="log-entry">${l}</div>`).join('')}</div>
           <button class="btn btn-primary mt-8" id="btn-clear-log">확인</button>`;
         document.getElementById('btn-clear-log')?.addEventListener('click', () => {
-          s.combat.log = [];
+          this.engine.combat.log = [];
           this.renderCombat();
         });
+      } else {
+        arenaEl.classList.add('hidden');
       }
     }
 
-    // 지역 선택
+    // ---- 지역 표시 ----
     const selectEl = document.getElementById('combat-zone-select');
     selectEl.innerHTML = `<span class="text-muted" style="font-size:12px;">현재: ${zone?.icon} ${zone?.name}</span>`;
 
-    // 몬스터 리스트
+    // ---- 몬스터 리스트 ----
     const monListEl = document.getElementById('monster-list');
     if (!zone || !zone.monsters) {
       monListEl.innerHTML = '<div class="text-muted text-center" style="padding:20px;">이 지역에는 몬스터가 없습니다.</div>';
@@ -606,11 +665,14 @@ export class GameUI {
               <div class="monster-stats-row">❤️${mon.hp} ⚔️${mon.atk} 🛡️${mon.def} 💨${mon.spd}${mon.element ? ` | ${ENV_NAMES[mon.element] || mon.element}` : ''}${mon.weakness ? ` | 약점:${ENV_NAMES[mon.weakness] || mon.weakness}` : ''}</div>
               <div style="font-size:10px;color:#f9d71c;">EXP:${mon.exp} 💰${mon.gold}</div>
             </div>
-            <button class="btn btn-danger btn-small" ${c.inCombat ? 'disabled' : ''}>도전</button>
+            <div class="monster-actions">
+              <button class="btn btn-danger btn-small combat-single-btn" data-mid="${mId}" ${busy?'disabled':''}>⚔️ 도전</button>
+              <button class="btn btn-primary btn-small combat-auto-btn" data-mid="${mId}" ${busy?'disabled':''}>🔄 자동</button>
+            </div>
           </div>`;
       }).join('');
 
-      // 레이드 섹션
+      // 레이드
       const raidEl = document.getElementById('raid-list');
       if (raidMons.length > 0) {
         document.getElementById('raid-section').style.display = 'block';
@@ -623,24 +685,87 @@ export class GameUI {
                 <div class="monster-name">👑 ${mon.name} <span class="text-muted">Tier ${mon.tier}</span></div>
                 <div class="monster-stats-row">❤️${mon.hp} ⚔️${mon.atk} 🛡️${mon.def} 💨${mon.spd}${mon.element ? ` | ${ENV_NAMES[mon.element] || mon.element}` : ''}</div>
                 <div style="font-size:10px;color:#f9d71c;">EXP:${mon.exp} 💰${mon.gold}</div>
-                <div style="font-size:10px;color:#9b59b6;">⚠️ 레이드 보스 - 강력한 장비 필요!</div>
+                <div style="font-size:10px;color:#9b59b6;">⚠️ 레이드 보스</div>
               </div>
-              <button class="btn btn-danger btn-small" ${c.inCombat ? 'disabled' : ''}>도전</button>
+              <div class="monster-actions">
+                <button class="btn btn-danger btn-small combat-single-btn" data-mid="${mId}" ${busy?'disabled':''}>⚔️ 도전</button>
+                <button class="btn btn-primary btn-small combat-auto-btn" data-mid="${mId}" ${busy?'disabled':''}>🔄 자동</button>
+              </div>
             </div>`;
         }).join('');
       } else {
         document.getElementById('raid-section').style.display = 'none';
       }
 
-      // 전투 시작 이벤트
-      document.querySelectorAll('.monster-card .btn').forEach(btn => {
+      // 이벤트: 단일 전투
+      document.querySelectorAll('.combat-single-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const mId = btn.closest('.monster-card').dataset.monster;
-          this.engine.startCombat(mId);
+          this.engine.startCombat(btn.dataset.mid);
+        });
+      });
+      // 이벤트: 자동전투
+      document.querySelectorAll('.combat-auto-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.showAutoModal(btn.dataset.mid);
         });
       });
     }
+  }
+
+  showAutoModal(monsterId) {
+    const mon = MONSTERS[monsterId];
+    if (!mon) return;
+    const html = `
+      <div class="modal-title">🔄 자동전투 설정</div>
+      <div class="mb-8"><strong>${mon.icon} ${mon.name}</strong> (Tier ${mon.tier})</div>
+      <div class="modal-section">
+        <div class="modal-section-title">반복 횟수</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-small auto-repeat-btn btn-primary" data-count="0">♾️ 무한</button>
+          <button class="btn btn-small auto-repeat-btn" data-count="5">5회</button>
+          <button class="btn btn-small auto-repeat-btn" data-count="10">10회</button>
+          <button class="btn btn-small auto-repeat-btn" data-count="20">20회</button>
+          <button class="btn btn-small auto-repeat-btn" data-count="50">50회</button>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">전투 속도</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-small auto-speed-btn btn-primary" data-speed="1">1x 보통</button>
+          <button class="btn btn-small auto-speed-btn" data-speed="2">2x 빠르게</button>
+        </div>
+      </div>
+      <div class="modal-section" style="font-size:11px;color:#889;">
+        <div>• HP 30% 이하 시 자동 물약 사용</div>
+        <div>• HP 부족 또는 물약 소진 시 자동 중단</div>
+      </div>
+      <button class="btn btn-danger" id="btn-start-auto" style="width:100%;margin-top:12px;">⚔️ 자동전투 시작</button>
+    `;
+    this.showModal(html);
+
+    let selectedCount = 0;
+    let selectedSpeed = 1;
+
+    document.querySelectorAll('.auto-repeat-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.auto-repeat-btn').forEach(b => b.className = 'btn btn-small auto-repeat-btn');
+        btn.classList.add('btn-primary');
+        selectedCount = parseInt(btn.dataset.count);
+      });
+    });
+    document.querySelectorAll('.auto-speed-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.auto-speed-btn').forEach(b => b.className = 'btn btn-small auto-speed-btn');
+        btn.classList.add('btn-primary');
+        selectedSpeed = parseInt(btn.dataset.speed);
+      });
+    });
+    document.getElementById('btn-start-auto')?.addEventListener('click', () => {
+      this.closeModal();
+      this.engine.startAutoCombat(monsterId, selectedCount, selectedSpeed);
+    });
   }
 
   // ---- 탈것 탭 ----
