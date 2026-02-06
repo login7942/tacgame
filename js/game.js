@@ -6,6 +6,7 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          WORKER_TYPES, WORKER_NAMES, HIRE_COSTS, MARKET_BASE_PRICES,
          EXP_TABLE, INHERITABLE_CATEGORIES, ENV_NAMES } from './data.js';
 import { CombatSystem } from './systems/combat.js';
+import { GatheringSystem } from './systems/gathering.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -56,6 +57,7 @@ export class GameEngine {
     this.tickInterval = null;
     this.gatherCooldown = 0;
     this.combat = null; // CombatSystem 인스턴스
+    this.gathering = null; // GatheringSystem 인스턴스
   }
 
   // ---- 이벤트 시스템 ----
@@ -71,6 +73,7 @@ export class GameEngine {
   init() {
     this.state = this.loadState() || createDefaultState();
     this.initCombatSystem();
+    this.initGatheringSystem();
     this.initMarket();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
@@ -138,6 +141,85 @@ export class GameEngine {
     this.combat.on('turnComplete', () => this.emit('stateChanged', this.state));
     this.combat.on('autoStart', () => this.emit('stateChanged', this.state));
     this.combat.on('autoStop', () => this.emit('stateChanged', this.state));
+  }
+
+  // ---- 자동채집 시스템 초기화 (콜백 브릿지) ----
+  initGatheringSystem() {
+    this.gathering = new GatheringSystem({
+      getCurrentZone: () => this.state.player.currentZone,
+      getPlayerStamina: () => ({
+        stamina: this.state.player.stamina,
+        maxStamina: this.state.player.maxStamina
+      }),
+      getPlayerLevel: () => this.state.player.level,
+      getToolBonus: () => {
+        const tool = this.state.equippedGear.tool;
+        if (!tool || !EQUIPMENT[tool]) return { efficiency: 0, cooldownReduce: 0 };
+        const eq = EQUIPMENT[tool];
+        return {
+          efficiency: eq.stats.gathering || 0,
+          cooldownReduce: 0 // 나중에 장비에 추가 가능
+        };
+      },
+      consumeStamina: (amt) => {
+        if (this.state.player.stamina < amt) return false;
+        this.state.player.stamina = clamp(this.state.player.stamina - amt, 0, this.state.player.maxStamina);
+        return true;
+      },
+      gatherResource: () => {
+        // 기존 gatherResource 로직 재사용 (쿨다운 없이)
+        const s = this.state;
+        const zone = ZONES[s.player.currentZone];
+        if (!zone) return [];
+
+        const gathered = [];
+        const bonusSpeed = 1 + s.permanentBonuses.gatherSpeed * 0.01;
+        for (const resId of zone.resources) {
+          const rate = (zone.resourceRates[resId] || 0.5) * bonusSpeed;
+          if (Math.random() < rate) {
+            const amount = rand(1, 3);
+            this.addItem(resId, amount);
+            gathered.push({ id: resId, amount });
+            s.stats.resourcesGathered += amount;
+          }
+        }
+        return gathered;
+      },
+      hasStaminaFood: () => {
+        return this.hasItem('herb_stew', 1) ||
+               this.hasItem('nutrient_soup', 1) ||
+               this.hasItem('energy_steak', 1) ||
+               this.hasItem('energy_drink', 1);
+      },
+      useStaminaFood: () => {
+        // 우선순위: 저티어 → 고티어 (효율적 사용)
+        const foods = [
+          { id: 'herb_stew', recover: 30, name: '허브 스튜' },
+          { id: 'nutrient_soup', recover: 50, name: '영양 수프' },
+          { id: 'energy_steak', recover: 80, name: '에너지 스테이크' },
+          { id: 'energy_drink', recover: 120, name: '정제된 에너지 드링크' },
+        ];
+        for (const food of foods) {
+          if (this.hasItem(food.id, 1)) {
+            this.removeItem(food.id, 1);
+            this.state.player.stamina = clamp(
+              this.state.player.stamina + food.recover,
+              0,
+              this.state.player.maxStamina
+            );
+            return { recovered: food.recover, name: food.name };
+          }
+        }
+        return { recovered: 0, name: '' };
+      },
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    // GatheringSystem 이벤트 → GameEngine 이벤트 전달
+    this.gathering.on('toast', (t) => this.emit('toast', t));
+    this.gathering.on('gatherStart', () => this.emit('stateChanged', this.state));
+    this.gathering.on('gatherStop', () => this.emit('stateChanged', this.state));
+    this.gathering.on('gatherTick', () => this.emit('stateChanged', this.state));
   }
 
   // ---- 저장/불러오기 ----
@@ -527,6 +609,14 @@ export class GameEngine {
   getCombatSnapshot()    { return this.combat.getSnapshot(); }
   getAutoSnapshot()      { return this.combat.getAutoSnapshot(); }
 
+  // ---- 자동채집 (GatheringSystem에 위임) ----
+  startAutoGather()      { return this.gathering.start(); }
+  stopAutoGather()       { this.gathering.stop('자동채집을 중단했습니다.'); }
+  setAutoFood(enabled)   { this.gathering.setAutoFood(enabled); }
+  setFoodThreshold(val)  { this.gathering.setFoodThreshold(val); }
+  setStopThreshold(val)  { this.gathering.setStopThreshold(val); }
+  getGatherSnapshot()    { return this.gathering.getSnapshot(); }
+
   // ---- 경험치 / 레벨업 ----
   gainExp(amount) {
     const s = this.state;
@@ -538,6 +628,9 @@ export class GameEngine {
       s.player.hp = s.player.maxHp;
       s.player.attack += 2;
       s.player.defense += 1;
+      // 스태미나 증가 (레벨당 +4)
+      s.player.maxStamina += 4;
+      s.player.stamina = s.player.maxStamina;
       this.emit('toast', { msg: `🎉 레벨 ${s.player.level} 달성!`, type: 'success' });
     }
   }

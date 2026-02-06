@@ -108,6 +108,12 @@ export const RESOURCES = {
   herb_potion:      { name: '약초 물약',    tier: 1, category: 'food',  icon: '🧪', crafted: true },
   fire_potion:      { name: '화염 물약',    tier: 3, category: 'food',  icon: '🔥', crafted: true },
   ice_potion:       { name: '빙결 물약',    tier: 3, category: 'food',  icon: '❄️', crafted: true },
+
+  // === 스태미나 음식 ===
+  herb_stew:        { name: '허브 스튜',    tier: 1, category: 'food',  icon: '🍲', crafted: true },
+  nutrient_soup:    { name: '영양 수프',    tier: 2, category: 'food',  icon: '🥣', crafted: true },
+  energy_steak:     { name: '에너지 스테이크', tier: 3, category: 'food', icon: '🥩', crafted: true },
+  energy_drink:     { name: '정제된 에너지 드링크', tier: 4, category: 'food', icon: '🧃', crafted: true },
 };
 
 // ---- 장비 정의 ----
@@ -493,6 +499,16 @@ export const RECIPES = [
     ingredients: [{ id:'fire_essence', amount:2 },{ id:'herb', amount:2 },{ id:'cactus', amount:1 }] },
   { id: 'ice_potion',  name: '빙결 물약',  result: 'ice_potion',  type: 'food', amount: 1,
     ingredients: [{ id:'ice_essence', amount:2 },{ id:'mountain_herb', amount:1 },{ id:'herb', amount:2 }] },
+
+  // === 스태미나 음식 ===
+  { id: 'herb_stew', name: '허브 스튜', result: 'herb_stew', type: 'food', amount: 1,
+    ingredients: [{ id:'herb', amount:10 },{ id:'raw_meat', amount:5 },{ id:'mushroom', amount:3 }] },
+  { id: 'nutrient_soup', name: '영양 수프', result: 'nutrient_soup', type: 'food', amount: 1,
+    ingredients: [{ id:'mushroom', amount:15 },{ id:'fish', amount:8 },{ id:'herb', amount:5 }] },
+  { id: 'energy_steak', name: '에너지 스테이크', result: 'energy_steak', type: 'food', amount: 1,
+    ingredients: [{ id:'cooked_meat', amount:8 },{ id:'mountain_herb', amount:10 },{ id:'salt', amount:5 }] },
+  { id: 'energy_drink', name: '정제된 에너지 드링크', result: 'energy_drink', type: 'food', amount: 1,
+    ingredients: [{ id:'sky_bloom', amount:20 },{ id:'crystal', amount:10 },{ id:'deep_pearl', amount:15 }] },
 
   // === 무기 제작 ===
   { id: 'wooden_sword', name: '목검',      result: 'wooden_sword', type: 'equipment', amount: 1,

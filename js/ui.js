@@ -87,6 +87,9 @@ export class GameUI {
     const infoEl = document.getElementById('current-zone-info');
     if (currentZone) {
       const deployedCount = s.workers.filter(w => w.deployedZone === s.player.currentZone).length;
+      const gatherSnap = this.engine.getGatherSnapshot();
+      const isAutoGathering = gatherSnap.active;
+
       infoEl.innerHTML = `
         <div class="zone-detail">
           <div class="zone-detail-header">
@@ -101,10 +104,46 @@ export class GameUI {
           </div>
           ${currentZone.environment ? `<div style="font-size:11px;color:#e67e22;margin-bottom:6px;">${ENV_NAMES[currentZone.environment] || currentZone.environment} 환경 (피해: ${currentZone.hazardDmg}/초)</div>` : ''}
           <div style="font-size:11px;color:#4fc3f7;margin-bottom:6px;">👷 일꾼 ${deployedCount}/${currentZone.workerSlots} 배치</div>
-          <button class="btn btn-success gather-btn" id="btn-gather">🔨 채집하기</button>
+
+          ${isAutoGathering ? `
+          <div class="auto-session-panel" style="margin-bottom:8px;">
+            <div class="auto-session-header">
+              <span class="auto-badge">🔄 자동채집 중</span>
+              <span class="auto-speed-badge">${(gatherSnap.interval / 1000).toFixed(1)}초</span>
+            </div>
+            <div class="auto-session-stats">
+              <span>📦 ${gatherSnap.session.totalCount}개</span>
+              <span>⏱️ ${Math.floor((Date.now() - gatherSnap.session.startTime) / 1000)}초</span>
+            </div>
+            ${Object.keys(gatherSnap.session.gathered).length > 0 ? `
+            <div class="auto-session-loot">
+              ${Object.entries(gatherSnap.session.gathered).map(([id,amt]) =>
+                `${this.engine.getItemIcon(id)}${amt}`
+              ).join(' ')}
+            </div>` : ''}
+          </div>` : ''}
+
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-success gather-btn" id="btn-gather" ${isAutoGathering ? 'disabled' : ''}>🔨 채집하기</button>
+            <button class="btn ${isAutoGathering ? 'btn-danger' : 'btn-primary'}" id="btn-auto-gather">
+              ${isAutoGathering ? '⏹️ 중단' : '🔄 자동채집'}
+            </button>
+            ${!isAutoGathering ? `<button class="btn btn-small btn-warning" id="btn-auto-settings">⚙️</button>` : ''}
+          </div>
         </div>`;
+
       document.getElementById('btn-gather')?.addEventListener('click', () => {
         this.engine.gatherResource();
+      });
+      document.getElementById('btn-auto-gather')?.addEventListener('click', () => {
+        if (isAutoGathering) {
+          this.engine.stopAutoGather();
+        } else {
+          this.engine.startAutoGather();
+        }
+      });
+      document.getElementById('btn-auto-settings')?.addEventListener('click', () => {
+        this.showAutoGatherSettings();
       });
     }
 
@@ -831,6 +870,87 @@ export class GameUI {
     document.getElementById('btn-start-auto')?.addEventListener('click', () => {
       this.closeModal();
       this.engine.startAutoCombat(monsterId, selectedCount, selectedSpeed);
+    });
+  }
+
+  showAutoGatherSettings() {
+    const gatherSnap = this.engine.getGatherSnapshot();
+    const s = this.engine.getState();
+
+    const html = `
+      <div class="modal-title">⚙️ 자동채집 설정</div>
+      <div class="text-muted mb-8">현재 스태미나: ${Math.floor(s.player.stamina)}/${s.player.maxStamina}</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">자동 음식 사용</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <button class="btn btn-small auto-food-btn ${gatherSnap.settings.autoFood ? 'btn-primary' : ''}" data-enabled="true">ON</button>
+          <button class="btn btn-small auto-food-btn ${!gatherSnap.settings.autoFood ? 'btn-primary' : ''}" data-enabled="false">OFF</button>
+        </div>
+        <div style="font-size:11px;color:#889;margin-bottom:8px;">
+          스태미나가 낮으면 자동으로 음식 사용 (저티어 → 고티어 순)
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">음식 사용 임계값 (현재: ${gatherSnap.settings.foodThreshold}%)</div>
+        <input type="range" id="food-threshold-slider" min="10" max="80" value="${gatherSnap.settings.foodThreshold}" style="width:100%;">
+        <div style="font-size:11px;color:#4fc3f7;">스태미나 <span id="food-threshold-display">${gatherSnap.settings.foodThreshold}</span>% 이하 시 음식 사용</div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">자동 중단 임계값 (현재: ${gatherSnap.settings.stopThreshold}%)</div>
+        <input type="range" id="stop-threshold-slider" min="5" max="50" value="${gatherSnap.settings.stopThreshold}" style="width:100%;">
+        <div style="font-size:11px;color:#e74c3c;">스태미나 <span id="stop-threshold-display">${gatherSnap.settings.stopThreshold}</span>% 이하 시 자동 중단</div>
+      </div>
+
+      <div class="modal-section" style="font-size:11px;color:#889;">
+        <div><strong>💡 팁:</strong></div>
+        <div>• 레벨이 높을수록 Max 스태미나 증가 (레벨당 +4)</div>
+        <div>• 스태미나 음식: 허브 스튜(+30), 영양 수프(+50), 에너지 스테이크(+80), 에너지 드링크(+120)</div>
+        <div>• 자동채집 간격: 레벨 50+ → 1.2초, 레벨 20+ → 1.7초, 기본 → 2초</div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-save-gather-settings" style="width:100%;margin-top:12px;">💾 설정 저장</button>
+    `;
+
+    this.showModal(html);
+
+    let autoFood = gatherSnap.settings.autoFood;
+    let foodThreshold = gatherSnap.settings.foodThreshold;
+    let stopThreshold = gatherSnap.settings.stopThreshold;
+
+    // 자동 음식 토글
+    document.querySelectorAll('.auto-food-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.auto-food-btn').forEach(b => b.classList.remove('btn-primary'));
+        btn.classList.add('btn-primary');
+        autoFood = btn.dataset.enabled === 'true';
+      });
+    });
+
+    // 슬라이더
+    const foodSlider = document.getElementById('food-threshold-slider');
+    const foodDisplay = document.getElementById('food-threshold-display');
+    foodSlider?.addEventListener('input', (e) => {
+      foodThreshold = parseInt(e.target.value);
+      foodDisplay.textContent = foodThreshold;
+    });
+
+    const stopSlider = document.getElementById('stop-threshold-slider');
+    const stopDisplay = document.getElementById('stop-threshold-display');
+    stopSlider?.addEventListener('input', (e) => {
+      stopThreshold = parseInt(e.target.value);
+      stopDisplay.textContent = stopThreshold;
+    });
+
+    // 저장
+    document.getElementById('btn-save-gather-settings')?.addEventListener('click', () => {
+      this.engine.setAutoFood(autoFood);
+      this.engine.setFoodThreshold(foodThreshold);
+      this.engine.setStopThreshold(stopThreshold);
+      this.closeModal();
+      this.showToast('자동채집 설정이 저장되었습니다.', 'success');
     });
   }
 
