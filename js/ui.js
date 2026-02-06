@@ -288,6 +288,7 @@ export class GameUI {
 
     listEl.innerHTML = recipes.map(recipe => {
       const canCraft = this.engine.canCraft(recipe.id);
+      const maxCraftable = this.engine.getMaxCraftableAmount(recipe.id);
       const resultIcon = this.engine.getItemIcon(recipe.result);
       const ingredients = recipe.ingredients.map(ing => {
         const has = this.engine.hasItem(ing.id, ing.amount);
@@ -301,17 +302,82 @@ export class GameUI {
           <div class="recipe-info">
             <div class="recipe-name">${recipe.name}${recipe.amount > 1 ? ` x${recipe.amount}` : ''}</div>
             <div class="recipe-ingredients">${ingredients}</div>
+            ${maxCraftable > 1 ? `<div style="font-size:10px;color:#4fc3f7;margin-top:2px;">최대 ${maxCraftable}개 제작 가능</div>` : ''}
           </div>
-          <button class="btn btn-primary btn-small" ${!canCraft ? 'disabled' : ''}>제작</button>
+          <button class="btn btn-primary btn-small craft-btn" ${!canCraft ? 'disabled' : ''} data-recipe="${recipe.id}">제작</button>
         </div>`;
     }).join('');
 
-    listEl.querySelectorAll('.recipe-card .btn').forEach(btn => {
+    listEl.querySelectorAll('.craft-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const recipeId = btn.closest('.recipe-card').dataset.recipe;
-        this.engine.craft(recipeId);
+        const recipeId = btn.dataset.recipe;
+        this.showCraftModal(recipeId);
       });
+    });
+  }
+
+  showCraftModal(recipeId) {
+    const recipe = RECIPES.find(r => r.id === recipeId);
+    if (!recipe) return;
+
+    const s = this.engine.getState();
+    const maxCraftable = this.engine.getMaxCraftableAmount(recipeId);
+    const resultIcon = this.engine.getItemIcon(recipe.result);
+
+    const ingredients = recipe.ingredients.map(ing => {
+      const has = this.engine.hasItem(ing.id, ing.amount);
+      const current = this.engine.getItemCount(ing.id);
+      const perCraft = ing.amount;
+      return `
+        <div class="modal-stat-row">
+          <span class="modal-stat-label">${this.engine.getItemIcon(ing.id)} ${this.engine.getItemName(ing.id)}</span>
+          <span class="modal-stat-value ${has ? 'text-green' : 'text-red'}">${current} / ${perCraft} (개당)</span>
+        </div>`;
+    }).join('');
+
+    const html = `
+      <div class="modal-title">${resultIcon} ${recipe.name} 제작</div>
+      <div class="text-muted mb-8">${recipe.type === 'equipment' ? '장비' : '아이템'} | ${recipe.amount > 1 ? `${recipe.amount}개씩 생성` : ''}</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">필요 재료</div>
+        ${ingredients}
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">제작 수량 <span class="text-muted" style="font-size:11px;">(최대: ${maxCraftable})</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+          <button class="btn btn-small craft-qty-btn btn-primary" data-qty="1">x1</button>
+          ${maxCraftable >= 5 ? `<button class="btn btn-small craft-qty-btn" data-qty="5">x5</button>` : ''}
+          ${maxCraftable >= 10 ? `<button class="btn btn-small craft-qty-btn" data-qty="10">x10</button>` : ''}
+          ${maxCraftable >= 50 ? `<button class="btn btn-small craft-qty-btn" data-qty="50">x50</button>` : ''}
+          ${maxCraftable > 1 ? `<button class="btn btn-small craft-qty-btn" data-qty="${maxCraftable}">✨ 최대 (${maxCraftable})</button>` : ''}
+        </div>
+      </div>
+
+      <button class="btn btn-success" id="btn-craft-confirm" style="width:100%;margin-top:8px;">🔨 제작하기</button>
+    `;
+
+    this.showModal(html);
+
+    let selectedQty = 1;
+
+    document.querySelectorAll('.craft-qty-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.craft-qty-btn').forEach(b => b.classList.remove('btn-primary'));
+        btn.classList.add('btn-primary');
+        selectedQty = parseInt(btn.dataset.qty);
+      });
+    });
+
+    document.getElementById('btn-craft-confirm')?.addEventListener('click', () => {
+      this.closeModal();
+      if (selectedQty === 1) {
+        this.engine.craft(recipeId);
+      } else {
+        this.engine.craftMultiple(recipeId, selectedQty);
+      }
     });
   }
 

@@ -440,6 +440,21 @@ export class GameEngine {
     return recipe.ingredients.every(ing => this.hasItem(ing.id, ing.amount));
   }
 
+  // 최대 제작 가능 수량 계산
+  getMaxCraftableAmount(recipeId) {
+    const recipe = RECIPES.find(r => r.id === recipeId);
+    if (!recipe) return 0;
+
+    let maxAmount = Infinity;
+    for (const ing of recipe.ingredients) {
+      const available = this.getItemCount(ing.id);
+      const possible = Math.floor(available / ing.amount);
+      maxAmount = Math.min(maxAmount, possible);
+    }
+
+    return maxAmount === Infinity ? 0 : maxAmount;
+  }
+
   craft(recipeId) {
     const recipe = RECIPES.find(r => r.id === recipeId);
     if (!recipe) return;
@@ -461,6 +476,44 @@ export class GameEngine {
     }
     this.state.stats.itemsCrafted++;
     this.emit('stateChanged', this.state);
+  }
+
+  // 대량 제작
+  craftMultiple(recipeId, count) {
+    const recipe = RECIPES.find(r => r.id === recipeId);
+    if (!recipe) return;
+
+    // 실제 제작 가능한 수량 계산
+    const maxAmount = this.getMaxCraftableAmount(recipeId);
+    const actualCount = Math.min(count, maxAmount);
+
+    if (actualCount <= 0) {
+      this.emit('toast', { msg: '재료가 부족합니다.', type: 'error' });
+      return;
+    }
+
+    // 재료 소모
+    for (const ing of recipe.ingredients) {
+      this.removeItem(ing.id, ing.amount * actualCount);
+    }
+
+    // 결과물
+    if (recipe.type === 'equipment') {
+      // 장비는 개별 생성
+      for (let i = 0; i < actualCount; i++) {
+        this.addEquipment(recipe.result);
+      }
+      this.emit('toast', { msg: `${recipe.name} x${actualCount} 제작 완료!`, type: 'success' });
+    } else {
+      const totalAmount = recipe.amount * actualCount;
+      this.addItem(recipe.result, totalAmount);
+      this.emit('toast', { msg: `${recipe.name} x${totalAmount} 제작 완료! (${actualCount}회 제작)`, type: 'success' });
+    }
+
+    this.state.stats.itemsCrafted += actualCount;
+    this.emit('stateChanged', this.state);
+
+    return actualCount;
   }
 
   // ---- 전투 (CombatSystem에 위임) ----
