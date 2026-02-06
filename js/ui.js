@@ -59,6 +59,7 @@ export class GameUI {
   // ---- 상단 바 ----
   updateTopBar() {
     const s = this.engine.getState();
+    if (!s) return;
     const p = s.player;
     // HP
     document.querySelector('.hp-fill').style.width = `${(p.hp / p.maxHp) * 100}%`;
@@ -78,6 +79,7 @@ export class GameUI {
   // ---- 지역 탭 ----
   renderZones() {
     const s = this.engine.getState();
+    if (!s) return;
     const visibleZones = this.engine.getVisibleZones();
     const currentZone = ZONES[s.player.currentZone];
 
@@ -147,6 +149,7 @@ export class GameUI {
   // ---- 인벤토리 탭 ----
   renderInventory() {
     const s = this.engine.getState();
+    if (!s) return;
     const listEl = document.getElementById('inventory-list');
 
     // 필터 버튼
@@ -270,6 +273,7 @@ export class GameUI {
   // ---- 제작 탭 ----
   renderCrafting() {
     const s = this.engine.getState();
+    if (!s) return;
     const listEl = document.getElementById('recipe-list');
 
     this.bindFilterButtons('#panel-crafting', (filter) => {
@@ -314,6 +318,7 @@ export class GameUI {
   // ---- 일꾼 탭 ----
   renderWorkers() {
     const s = this.engine.getState();
+    if (!s) return;
     const listEl = document.getElementById('worker-list');
     const deployEl = document.getElementById('deploy-status');
 
@@ -527,6 +532,7 @@ export class GameUI {
   // ---- 전투 탭 ----
   renderCombat() {
     const s = this.engine.getState();
+    if (!s) return;
     const zone = ZONES[s.player.currentZone];
     const c = s.combat;
 
@@ -640,6 +646,7 @@ export class GameUI {
   // ---- 탈것 탭 ----
   renderVehicles() {
     const s = this.engine.getState();
+    if (!s) return;
 
     // 보유 탈것
     const ownedEl = document.getElementById('owned-vehicle-list');
@@ -712,6 +719,7 @@ export class GameUI {
   // ---- 시장 탭 ----
   renderMarket() {
     const s = this.engine.getState();
+    if (!s) return;
     const listEl = document.getElementById('market-list');
     const timerEl = document.getElementById('market-timer');
     const nextUpdate = 60 - (s.tickCount % 60);
