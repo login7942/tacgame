@@ -52,6 +52,7 @@ export class GameUI {
       case 'combat': this.renderCombat(); break;
       case 'vehicles': this.renderVehicles(); break;
       case 'codex': this.renderCodex(); break;
+      case 'missions': this.renderMissions(); break;
       case 'market': this.renderMarket(); break;
     }
     this.updateTopBar();
@@ -1372,6 +1373,196 @@ export class GameUI {
     }
 
     this.showModal(html);
+  }
+
+  // ---- 미션 & 업적 탭 ----
+  renderMissions() {
+    const s = this.engine.getState();
+    if (!s) return;
+    const listEl = document.getElementById('missions-list');
+    const timerEl = document.getElementById('missions-timer');
+    if (!listEl) return;
+
+    // 필터 바인딩
+    this.bindFilterButtons('#panel-missions', (filter) => {
+      this.missionsFilter = filter;
+      this.renderMissions();
+    }, this.missionsFilter || 'daily');
+
+    const filter = this.missionsFilter || 'daily';
+
+    // 리셋 타이머 표시
+    const timers = this.engine.getMissionResetTimers();
+    if (timerEl) {
+      if (filter === 'daily') {
+        timerEl.innerHTML = `<div class="mission-reset-timer"><span>일일 미션 초기화까지</span><span>${timers.daily}</span></div>`;
+      } else if (filter === 'weekly') {
+        timerEl.innerHTML = `<div class="mission-reset-timer"><span>주간 미션 초기화까지</span><span>${timers.weekly}</span></div>`;
+      } else {
+        const achStats = this.engine.getAchievementStats();
+        timerEl.innerHTML = `
+          <div class="mission-reset-timer">
+            <span>업적 달성</span>
+            <span>${achStats.unlocked} / ${achStats.total} (${achStats.percentage}%)</span>
+          </div>`;
+      }
+    }
+
+    if (filter === 'daily') {
+      this.renderDailyMissions(listEl);
+    } else if (filter === 'weekly') {
+      this.renderWeeklyMissions(listEl);
+    } else {
+      this.renderAchievements(listEl);
+    }
+  }
+
+  renderDailyMissions(listEl) {
+    const missions = this.engine.getDailyMissions();
+    if (missions.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;color:#889;padding:40px;">미션을 불러오는 중...</div>';
+      return;
+    }
+
+    listEl.innerHTML = missions.map((m, i) => {
+      const prog = m.progress;
+      const pct = Math.min(100, Math.floor((prog.current / m.target) * 100));
+      const isComplete = prog.current >= m.target;
+      const isClaimed = prog.claimed;
+      const cardClass = isClaimed ? 'claimed' : isComplete ? 'completed' : '';
+      const fillClass = isComplete ? 'full' : 'daily';
+
+      return `
+        <div class="mission-card ${cardClass}">
+          <div class="mission-info">
+            <div class="mission-name">${m.name}</div>
+            <div class="mission-desc">${m.desc}</div>
+            <div class="mission-progress-bar">
+              <div class="mission-progress-fill ${fillClass}" style="width:${pct}%"></div>
+            </div>
+            <div class="mission-progress-text">${prog.current} / ${m.target}</div>
+          </div>
+          <div class="mission-reward">
+            <div class="mission-reward-text">${this.formatReward(m.reward)}</div>
+            ${isComplete && !isClaimed
+              ? `<button class="btn btn-small btn-success" data-claim-daily="${i}">수령</button>`
+              : isClaimed
+                ? '<span style="font-size:11px;color:#4caf50;">완료</span>'
+                : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    // 수령 버튼 이벤트
+    listEl.querySelectorAll('[data-claim-daily]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.claimDaily);
+        this.engine.claimDailyMission(idx);
+      });
+    });
+  }
+
+  renderWeeklyMissions(listEl) {
+    const missions = this.engine.getWeeklyMissions();
+    if (missions.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;color:#889;padding:40px;">미션을 불러오는 중...</div>';
+      return;
+    }
+
+    listEl.innerHTML = missions.map((m, i) => {
+      const prog = m.progress;
+      const pct = Math.min(100, Math.floor((prog.current / m.target) * 100));
+      const isComplete = prog.current >= m.target;
+      const isClaimed = prog.claimed;
+      const cardClass = isClaimed ? 'claimed' : isComplete ? 'completed' : '';
+      const fillClass = isComplete ? 'full' : 'weekly';
+
+      return `
+        <div class="mission-card ${cardClass}">
+          <div class="mission-info">
+            <div class="mission-name">${m.name}</div>
+            <div class="mission-desc">${m.desc}</div>
+            <div class="mission-progress-bar">
+              <div class="mission-progress-fill ${fillClass}" style="width:${pct}%"></div>
+            </div>
+            <div class="mission-progress-text">${prog.current} / ${m.target}</div>
+          </div>
+          <div class="mission-reward">
+            <div class="mission-reward-text">${this.formatReward(m.reward)}</div>
+            ${isComplete && !isClaimed
+              ? `<button class="btn btn-small btn-success" data-claim-weekly="${i}">수령</button>`
+              : isClaimed
+                ? '<span style="font-size:11px;color:#4caf50;">완료</span>'
+                : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    // 수령 버튼 이벤트
+    listEl.querySelectorAll('[data-claim-weekly]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.claimWeekly);
+        this.engine.claimWeeklyMission(idx);
+      });
+    });
+  }
+
+  renderAchievements(listEl) {
+    const achievements = this.engine.getAchievements();
+
+    // 정렬: 달성한 것 위로, 미달성은 진행도 높은 순
+    achievements.sort((a, b) => {
+      if (a.unlocked !== b.unlocked) return a.unlocked ? -1 : 1;
+      const aPct = a.currentValue / a.target;
+      const bPct = b.currentValue / b.target;
+      return bPct - aPct;
+    });
+
+    const categoryNames = {
+      combat: '전투', gather: '채집', craft: '제작',
+      economy: '경제', level: '레벨', worker: '일꾼',
+      codex: '도감', misc: '기타', enhance: '강화',
+    };
+    const categoryIcons = {
+      combat: '⚔️', gather: '⛏️', craft: '🔨',
+      economy: '💰', level: '📈', worker: '👷',
+      codex: '📖', misc: '🎲', enhance: '🔧',
+    };
+
+    listEl.innerHTML = achievements.map(ach => {
+      const pct = Math.min(100, Math.floor((ach.currentValue / ach.target) * 100));
+      const icon = categoryIcons[ach.category] || '🏆';
+
+      return `
+        <div class="achievement-card ${ach.unlocked ? 'unlocked' : ''}">
+          <div class="achievement-icon">${ach.unlocked ? '🏆' : icon}</div>
+          <div class="achievement-info">
+            <div class="achievement-name">${ach.name}</div>
+            <div class="achievement-desc">${ach.desc}</div>
+            ${!ach.unlocked
+              ? `<div class="achievement-progress">${ach.currentValue.toLocaleString()} / ${ach.target.toLocaleString()} (${pct}%)</div>`
+              : '<div class="achievement-progress" style="color:#ffd700;">달성 완료!</div>'}
+          </div>
+          <div class="achievement-reward-text">${this.formatReward(ach.reward)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  formatReward(reward) {
+    const parts = [];
+    if (reward.gold) parts.push(`💰${reward.gold}`);
+    if (reward.exp) parts.push(`✨${reward.exp}`);
+    if (reward.legacyPoints) parts.push(`⭐${reward.legacyPoints}`);
+    if (reward.item) {
+      const name = this.engine.getItemName(reward.item);
+      parts.push(`${name}x${reward.amount || 1}`);
+    }
+    if (reward.bonus) {
+      for (const [key, val] of Object.entries(reward.bonus)) {
+        parts.push(`📊${key}+${val}%`);
+      }
+    }
+    return parts.join('<br>');
   }
 
   // ---- 시장 탭 ----

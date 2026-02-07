@@ -833,6 +833,129 @@ body {
   min-width: 0;
 }
 
+/* ===== Mission Cards ===== */
+.mission-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border-left: 3px solid #555;
+  transition: background 0.2s;
+}
+.mission-card.completed {
+  border-left-color: #4caf50;
+  background: rgba(76,175,80,0.1);
+}
+.mission-card.claimed {
+  border-left-color: #333;
+  opacity: 0.5;
+}
+.mission-info {
+  flex: 1;
+  min-width: 0;
+}
+.mission-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 2px;
+}
+.mission-desc {
+  font-size: 11px;
+  color: #889;
+  margin-bottom: 6px;
+}
+.mission-progress-bar {
+  height: 6px;
+  background: #222;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.mission-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.mission-progress-fill.daily { background: #2196f3; }
+.mission-progress-fill.weekly { background: #ff9800; }
+.mission-progress-fill.full { background: #4caf50; }
+.mission-progress-text {
+  font-size: 10px;
+  color: #889;
+}
+.mission-reward {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 70px;
+}
+.mission-reward-text {
+  font-size: 10px;
+  color: #aab;
+  text-align: center;
+}
+.mission-reset-timer {
+  padding: 8px 12px;
+  background: rgba(33,150,243,0.1);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #889;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Achievement Cards */
+.achievement-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  border-left: 3px solid #555;
+}
+.achievement-card.unlocked {
+  border-left-color: #ffd700;
+  background: rgba(255,215,0,0.08);
+}
+.achievement-icon {
+  font-size: 24px;
+  min-width: 32px;
+  text-align: center;
+}
+.achievement-info {
+  flex: 1;
+  min-width: 0;
+}
+.achievement-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 2px;
+}
+.achievement-desc {
+  font-size: 11px;
+  color: #889;
+  margin-bottom: 4px;
+}
+.achievement-progress {
+  font-size: 10px;
+  color: #4caf50;
+}
+.achievement-reward-text {
+  font-size: 10px;
+  color: #aab;
+  min-width: 60px;
+  text-align: right;
+}
+
 /* ===== Responsive ===== */
 @media (min-width: 600px) {
   .card-grid { grid-template-columns: repeat(4, 1fr); }

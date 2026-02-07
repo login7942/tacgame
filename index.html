@@ -43,6 +43,7 @@
       <button class="tab-btn" data-tab="combat">⚔️ 전투</button>
       <button class="tab-btn" data-tab="vehicles">🚀 탈것</button>
       <button class="tab-btn" data-tab="codex">📖 도감</button>
+      <button class="tab-btn" data-tab="missions">📜 미션</button>
       <button class="tab-btn" data-tab="market">🏪 시장</button>
     </nav>
 
@@ -145,6 +146,20 @@
           <button class="filter-btn" data-filter="equipment">장비</button>
         </div>
         <div id="codex-list" class="scroll-container"></div>
+      </div>
+
+      <!-- Missions Tab -->
+      <div class="tab-panel" id="panel-missions">
+        <div class="panel-header">
+          <h2>미션 & 업적</h2>
+        </div>
+        <div id="missions-timer"></div>
+        <div class="filter-buttons">
+          <button class="filter-btn active" data-filter="daily">일일</button>
+          <button class="filter-btn" data-filter="weekly">주간</button>
+          <button class="filter-btn" data-filter="achievements">업적</button>
+        </div>
+        <div id="missions-list" class="scroll-container"></div>
       </div>
 
       <!-- Market Tab -->

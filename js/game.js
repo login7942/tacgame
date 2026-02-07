@@ -10,6 +10,7 @@ import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
 import { MarketSystem } from './systems/market.js';
 import { CodexSystem } from './systems/codex.js';
+import { MissionSystem } from './systems/missions.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -53,6 +54,12 @@ function createDefaultState() {
       },
       milestones: {}
     },
+    missions: {
+      dailyMissions: [], weeklyMissions: [],
+      dailyProgress: {}, weeklyProgress: {},
+      achievements: {},
+      lastDailyReset: '', lastWeeklyReset: '',
+    },
     tickCount: 0,
     lastSave: Date.now(),
   };
@@ -72,6 +79,7 @@ export class GameEngine {
     this.enhancement = null; // EnhancementSystem 인스턴스
     this.market = null; // MarketSystem 인스턴스
     this.codex = null; // CodexSystem 인스턴스
+    this.missions = null; // MissionSystem 인스턴스
   }
 
   // ---- 이벤트 시스템 ----
@@ -90,6 +98,8 @@ export class GameEngine {
     this.initGatheringSystem();
     this.initEnhancementSystem();
     this.initMarketSystem();
+    this.initCodexSystem();
+    this.initMissionSystem();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
   }
@@ -357,6 +367,50 @@ export class GameEngine {
     });
   }
 
+  // ---- 미션 시스템 초기화 (콜백 브릿지) ----
+  initMissionSystem() {
+    this.missions = new MissionSystem({
+      getStats: () => ({ ...this.state.stats }),
+      getLevel: () => this.state.player.level,
+      getWorkerCount: () => this.state.workers.length,
+      getCodexPercentage: () => this.codex ? this.codex.getTotalProgress().percentage : 0,
+      getMaxEnhancement: () => {
+        let max = 0;
+        for (const eq of this.state.equipment) {
+          if ((eq.enhancement || 0) > max) max = eq.enhancement;
+        }
+        return max;
+      },
+      getDeaths: () => this.state.player.deaths,
+      addGold: (amt) => {
+        this.state.player.gold += amt;
+        this.state.stats.totalGoldEarned += amt;
+      },
+      addExp: (amt) => this.gainExp(amt),
+      addLegacyPoints: (amt) => { this.state.player.legacyPoints += amt; },
+      grantItem: (itemId, amount) => this.addItem(itemId, amount),
+      addPermanentBonus: (key, amount) => {
+        if (!this.state.permanentBonuses[key]) {
+          this.state.permanentBonuses[key] = 0;
+        }
+        this.state.permanentBonuses[key] += amount;
+      },
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    // 기존 state.missions에서 복원
+    if (this.state.missions) {
+      this.missions.setState(this.state.missions);
+    }
+
+    // MissionSystem 이벤트 → GameEngine 이벤트 전달
+    this.missions.on('toast', (t) => this.emit('toast', t));
+    this.missions.on('achievementUnlocked', (data) => {
+      this.recalcPlayerStats();
+      this.emit('stateChanged', this.state);
+    });
+  }
+
   // ---- 저장/불러오기 ----
   saveState() {
     this.state.lastSave = Date.now();
@@ -367,6 +421,10 @@ export class GameEngine {
     // CodexSystem 상태 동기화
     if (this.codex) {
       this.state.codex = this.codex.getState();
+    }
+    // MissionSystem 상태 동기화
+    if (this.missions) {
+      this.state.missions = this.missions.getState();
     }
     try {
       localStorage.setItem('tacgame_save', JSON.stringify(this.state));
@@ -513,6 +571,11 @@ export class GameEngine {
     // 투자 결과 체크 (매 tick)
     if (this.market) {
       this.market.checkInvestments();
+    }
+
+    // 미션 진행도 업데이트 (5초마다)
+    if (s.tickCount % 5 === 0 && this.missions) {
+      this.missions.update(s);
     }
 
     // 쿨다운
@@ -1236,6 +1299,8 @@ export class GameEngine {
     const oldUnlockedZones = [...s.unlockedZones];
     const oldWorkers = s.workers.filter(w => w.level >= 5); // 레벨 5 이상 일꾼만 유지
     const oldStats = { ...s.stats };
+    const oldCodex = this.codex ? this.codex.getState() : null;
+    const oldMissions = this.missions ? this.missions.getState() : null;
 
     // 리셋
     const fresh = createDefaultState();
@@ -1273,6 +1338,10 @@ export class GameEngine {
     this.state.permanentBonuses.maxHpBonus += 5;
 
     this.initMarketSystem();
+    this.initCodexSystem();
+    if (oldCodex) this.codex.setState(oldCodex);
+    this.initMissionSystem();
+    if (oldMissions) this.missions.setState(oldMissions);
     this.recalcPlayerStats();
     this.saveState();
     this.emit('toast', { msg: `부활! 레거시 포인트로 영구 보너스 강화!`, type: 'info' });
@@ -1355,5 +1424,28 @@ export class GameEngine {
 
   getCodexMilestones() {
     return this.codex ? this.codex.getMilestones() : [];
+  }
+
+  // ---- 미션 접근자 ----
+  getDailyMissions() {
+    return this.missions ? this.missions.getDailyMissions() : [];
+  }
+  getWeeklyMissions() {
+    return this.missions ? this.missions.getWeeklyMissions() : [];
+  }
+  getAchievements() {
+    return this.missions ? this.missions.getAchievements() : [];
+  }
+  getAchievementStats() {
+    return this.missions ? this.missions.getAchievementStats() : { total: 0, unlocked: 0, percentage: 0 };
+  }
+  getMissionResetTimers() {
+    return this.missions ? this.missions.getResetTimers() : { daily: '--', weekly: '--' };
+  }
+  claimDailyMission(index) {
+    return this.missions ? this.missions.claimDaily(index) : false;
+  }
+  claimWeeklyMission(index) {
+    return this.missions ? this.missions.claimWeekly(index) : false;
   }
 }
