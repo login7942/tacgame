@@ -9,6 +9,7 @@ import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
 import { MarketSystem } from './systems/market.js';
+import { CodexSystem } from './systems/codex.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -44,6 +45,14 @@ function createDefaultState() {
     },
     inheritanceVault: [], // items preserved across death
     stats: { monstersKilled: 0, resourcesGathered: 0, itemsCrafted: 0, totalGoldEarned: 0 },
+    codex: {
+      entries: {
+        resources: {},
+        monsters: {},
+        equipment: {}
+      },
+      milestones: {}
+    },
     tickCount: 0,
     lastSave: Date.now(),
   };
@@ -62,6 +71,7 @@ export class GameEngine {
     this.gathering = null; // GatheringSystem 인스턴스
     this.enhancement = null; // EnhancementSystem 인스턴스
     this.market = null; // MarketSystem 인스턴스
+    this.codex = null; // CodexSystem 인스턴스
   }
 
   // ---- 이벤트 시스템 ----
@@ -142,7 +152,14 @@ export class GameEngine {
       this.emit('stateChanged', this.state);
     });
     this.combat.on('combatEnd', (data) => {
-      if (data.reason === 'victory') this.state.stats.monstersKilled++;
+      if (data.reason === 'victory') {
+        this.state.stats.monstersKilled++;
+
+        // 도감 등록
+        if (this.codex && data.monsterId) {
+          this.codex.discoverMonster(data.monsterId);
+        }
+      }
       this.emit('stateChanged', this.state);
     });
     this.combat.on('turnComplete', () => this.emit('stateChanged', this.state));
@@ -314,12 +331,42 @@ export class GameEngine {
     });
   }
 
+  // ---- 도감 시스템 초기화 (콜백 브릿지) ----
+  initCodexSystem() {
+    this.codex = new CodexSystem({
+      addPermanentBonus: (key, amount) => {
+        if (!this.state.permanentBonuses[key]) {
+          this.state.permanentBonuses[key] = 0;
+        }
+        this.state.permanentBonuses[key] += amount;
+      },
+      grantItem: (itemId, amount) => this.addItem(itemId, amount),
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    // 기존 state.codex에서 복원
+    if (this.state.codex) {
+      this.codex.setState(this.state.codex);
+    }
+
+    // CodexSystem 이벤트 → GameEngine 이벤트 전달
+    this.codex.on('toast', (t) => this.emit('toast', t));
+    this.codex.on('milestoneUnlocked', (data) => {
+      this.recalcPlayerStats();
+      this.emit('stateChanged', this.state);
+    });
+  }
+
   // ---- 저장/불러오기 ----
   saveState() {
     this.state.lastSave = Date.now();
     // MarketSystem 상태 동기화
     if (this.market) {
       this.state.market = this.market.getState();
+    }
+    // CodexSystem 상태 동기화
+    if (this.codex) {
+      this.state.codex = this.codex.getState();
     }
     try {
       localStorage.setItem('tacgame_save', JSON.stringify(this.state));
@@ -647,6 +694,11 @@ export class GameEngine {
   addItem(itemId, amount = 1) {
     if (!this.state.inventory[itemId]) this.state.inventory[itemId] = 0;
     this.state.inventory[itemId] += amount;
+
+    // 도감 등록
+    if (this.codex && RESOURCES[itemId]) {
+      this.codex.discoverResource(itemId, amount);
+    }
   }
   removeItem(itemId, amount = 1) {
     if (!this.state.inventory[itemId]) return false;
@@ -687,6 +739,12 @@ export class GameEngine {
       name: EQUIPMENT[baseId] ? EQUIPMENT[baseId].name : baseId,
     };
     this.state.equipment.push(equipment);
+
+    // 도감 등록
+    if (this.codex && EQUIPMENT[baseId]) {
+      this.codex.discoverEquipment(baseId);
+    }
+
     return equipment.uid;
   }
 
@@ -1286,4 +1344,16 @@ export class GameEngine {
 
   // ---- 접근자 ----
   getState() { return this.state; }
+
+  getCodexProgress(category) {
+    return this.codex ? this.codex.getProgress(category) : { discovered: 0, total: 0, percentage: 0 };
+  }
+
+  getCodexEntry(category, id) {
+    return this.codex ? this.codex.entries[category][id] : null;
+  }
+
+  getCodexMilestones() {
+    return this.codex ? this.codex.getMilestones() : [];
+  }
 }

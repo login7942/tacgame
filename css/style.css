@@ -806,6 +806,33 @@ body {
   color: #aab;
 }
 
+/* ===== Codex Cards ===== */
+.codex-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.codex-card:hover {
+  background: rgba(255,255,255,0.1);
+}
+.codex-card.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.codex-card.locked:hover {
+  background: rgba(255,255,255,0.05);
+}
+.codex-info {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ===== Responsive ===== */
 @media (min-width: 600px) {
   .card-grid { grid-template-columns: repeat(4, 1fr); }

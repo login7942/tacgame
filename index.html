@@ -42,6 +42,7 @@
       <button class="tab-btn" data-tab="workers">👷 일꾼</button>
       <button class="tab-btn" data-tab="combat">⚔️ 전투</button>
       <button class="tab-btn" data-tab="vehicles">🚀 탈것</button>
+      <button class="tab-btn" data-tab="codex">📖 도감</button>
       <button class="tab-btn" data-tab="market">🏪 시장</button>
     </nav>
 
@@ -129,6 +130,21 @@
           <h3>제작 가능</h3>
           <div id="craftable-vehicle-list"></div>
         </div>
+      </div>
+
+      <!-- Codex Tab -->
+      <div class="tab-panel" id="panel-codex">
+        <div class="panel-header">
+          <h2>도감</h2>
+        </div>
+        <div id="codex-progress"></div>
+        <div class="filter-buttons">
+          <button class="filter-btn active" data-filter="all">전체</button>
+          <button class="filter-btn" data-filter="resources">자원</button>
+          <button class="filter-btn" data-filter="monsters">몬스터</button>
+          <button class="filter-btn" data-filter="equipment">장비</button>
+        </div>
+        <div id="codex-list" class="scroll-container"></div>
       </div>
 
       <!-- Market Tab -->

@@ -51,6 +51,7 @@ export class GameUI {
       case 'workers': this.renderWorkers(); break;
       case 'combat': this.renderCombat(); break;
       case 'vehicles': this.renderVehicles(); break;
+      case 'codex': this.renderCodex(); break;
       case 'market': this.renderMarket(); break;
     }
     this.updateTopBar();
@@ -1160,6 +1161,217 @@ export class GameUI {
         });
       });
     }
+  }
+
+  // ---- 도감 탭 ----
+  renderCodex() {
+    const s = this.engine.getState();
+    if (!s) return;
+    const listEl = document.getElementById('codex-list');
+    if (!listEl) return;
+
+    // 카테고리 필터
+    this.bindFilterButtons('#panel-codex', (filter) => {
+      this.codexFilter = filter;
+      this.renderCodex();
+    }, this.codexFilter || 'all');
+
+    // 완성도 계산
+    const progress = {
+      resources: this.engine.getCodexProgress('resources'),
+      monsters: this.engine.getCodexProgress('monsters'),
+      equipment: this.engine.getCodexProgress('equipment'),
+    };
+
+    const totalDiscovered = progress.resources.discovered +
+                            progress.monsters.discovered +
+                            progress.equipment.discovered;
+    const totalCount = progress.resources.total +
+                       progress.monsters.total +
+                       progress.equipment.total;
+    const totalPercentage = Math.floor((totalDiscovered / totalCount) * 100);
+
+    // 완성도 바 표시
+    const progressEl = document.getElementById('codex-progress');
+    if (progressEl) {
+      progressEl.innerHTML = `
+        <div style="padding:12px;background:rgba(33,150,243,0.1);border-radius:8px;margin-bottom:16px;">
+          <div style="font-weight:600;font-size:14px;margin-bottom:8px;">📖 도감 완성도</div>
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <div style="flex:1;">
+              <div style="font-size:11px;color:#889;">자원</div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <span style="font-size:12px;font-weight:600;">${progress.resources.discovered}/${progress.resources.total}</span>
+                <div style="flex:1;height:8px;background:#222;border-radius:4px;overflow:hidden;">
+                  <div style="height:100%;background:#4caf50;width:${Math.floor((progress.resources.discovered/progress.resources.total)*100)}%"></div>
+                </div>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:11px;color:#889;">몬스터</div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <span style="font-size:12px;font-weight:600;">${progress.monsters.discovered}/${progress.monsters.total}</span>
+                <div style="flex:1;height:8px;background:#222;border-radius:4px;overflow:hidden;">
+                  <div style="height:100%;background:#f44336;width:${Math.floor((progress.monsters.discovered/progress.monsters.total)*100)}%"></div>
+                </div>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:11px;color:#889;">장비</div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <span style="font-size:12px;font-weight:600;">${progress.equipment.discovered}/${progress.equipment.total}</span>
+                <div style="flex:1;height:8px;background:#222;border-radius:4px;overflow:hidden;">
+                  <div style="height:100%;background:#ff9800;width:${Math.floor((progress.equipment.discovered/progress.equipment.total)*100)}%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:12px;margin-top:4px;">
+            전체: ${totalDiscovered}/${totalCount} (${totalPercentage}%)
+          </div>
+        </div>
+      `;
+    }
+
+    // 항목 목록 표시
+    let items = [];
+
+    if (this.codexFilter === 'all' || this.codexFilter === 'resources') {
+      for (const [id, data] of Object.entries(RESOURCES)) {
+        const entry = this.engine.getCodexEntry('resources', id);
+        items.push({
+          id, type: 'resource',
+          discovered: !!entry,
+          name: data.name, icon: data.icon, tier: data.tier,
+          category: data.category
+        });
+      }
+    }
+
+    if (this.codexFilter === 'all' || this.codexFilter === 'monsters') {
+      for (const [id, data] of Object.entries(MONSTERS)) {
+        const entry = this.engine.getCodexEntry('monsters', id);
+        items.push({
+          id, type: 'monster',
+          discovered: !!entry,
+          name: data.name, icon: data.icon, tier: data.tier,
+          defeatedCount: entry?.totalDefeated || 0
+        });
+      }
+    }
+
+    if (this.codexFilter === 'all' || this.codexFilter === 'equipment') {
+      for (const [id, data] of Object.entries(EQUIPMENT)) {
+        const entry = this.engine.getCodexEntry('equipment', id);
+        items.push({
+          id, type: 'equipment',
+          discovered: !!entry,
+          name: data.name, icon: data.icon, tier: data.tier,
+          slot: data.slot
+        });
+      }
+    }
+
+    // 정렬: 발견 → 미발견 순, tier desc
+    items.sort((a, b) => {
+      if (a.discovered !== b.discovered) return a.discovered ? -1 : 1;
+      return b.tier - a.tier;
+    });
+
+    listEl.innerHTML = items.map(item => {
+      const locked = !item.discovered;
+      const displayName = locked ? '???' : item.name;
+      const displayIcon = locked ? '❓' : item.icon;
+
+      return `
+        <div class="codex-card ${locked ? 'locked' : ''}" data-id="${item.id}" data-type="${item.type}">
+          <span style="font-size:24px;opacity:${locked ? 0.3 : 1};">${displayIcon}</span>
+          <div class="codex-info">
+            <div style="font-size:12px;font-weight:600;color:${locked ? '#555' : '#fff'};">${displayName}</div>
+            <div style="font-size:10px;color:#889;">
+              ${locked ? '미발견' : `Tier ${item.tier}`}
+              ${item.type === 'monster' && !locked ? ` | 처치: ${item.defeatedCount}회` : ''}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    // 클릭 이벤트
+    listEl.querySelectorAll('.codex-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.id;
+        const type = card.dataset.type;
+        const entry = this.engine.getCodexEntry(type + 's', id);
+        if (entry) {
+          this.showCodexDetail(id, type);
+        }
+      });
+    });
+  }
+
+  showCodexDetail(id, type) {
+    let html = '';
+    const entry = this.engine.getCodexEntry(type + 's', id);
+    if (!entry) return;
+
+    if (type === 'resource') {
+      const res = RESOURCES[id];
+      html = `
+        <div class="modal-title">${res.icon} ${res.name}</div>
+        <div class="text-muted mb-8">Tier ${res.tier} | ${res.category}</div>
+        <div class="modal-section">
+          <div class="modal-stat-row">
+            <span>총 수집량</span>
+            <span class="text-green">${entry.totalGathered || 0}개</span>
+          </div>
+          <div class="modal-stat-row">
+            <span>최초 획득</span>
+            <span>${new Date(entry.firstGathered).toLocaleString()}</span>
+          </div>
+        </div>`;
+    } else if (type === 'monster') {
+      const mon = MONSTERS[id];
+      html = `
+        <div class="modal-title">${mon.icon} ${mon.name}</div>
+        <div class="text-muted mb-8">Tier ${mon.tier} | HP: ${mon.hp} | ATK: ${mon.atk}</div>
+        <div class="modal-section">
+          <div class="modal-stat-row">
+            <span>총 처치 횟수</span>
+            <span class="text-red">${entry.totalDefeated || 0}회</span>
+          </div>
+          <div class="modal-stat-row">
+            <span>최초 처치</span>
+            <span>${new Date(entry.firstDefeated).toLocaleString()}</span>
+          </div>
+          ${mon.weakness ? `<div class="modal-stat-row"><span>약점</span><span>${mon.weakness}</span></div>` : ''}
+        </div>
+        ${mon.loot && mon.loot.length > 0 ? `
+        <div class="modal-section">
+          <div class="modal-section-title">드롭 아이템</div>
+          ${mon.loot.map(l => `<div>${this.engine.getItemIcon(l.id)} ${this.engine.getItemName(l.id)} (${Math.floor(l.chance*100)}%)</div>`).join('')}
+        </div>` : ''}`;
+    } else if (type === 'equipment') {
+      const eq = EQUIPMENT[id];
+      html = `
+        <div class="modal-title">${eq.icon} ${eq.name}</div>
+        <div class="text-muted mb-8">${eq.slot} | Tier ${eq.tier}</div>
+        <div class="modal-section">
+          <div class="modal-stat-row">
+            <span>최초 제작</span>
+            <span>${new Date(entry.firstCrafted).toLocaleString()}</span>
+          </div>
+        </div>
+        <div class="modal-section">
+          <div class="modal-section-title">스탯</div>
+          ${Object.entries(eq.stats).map(([k,v]) => `
+            <div class="modal-stat-row">
+              <span>${this.statName(k)}</span>
+              <span class="text-green">+${v}</span>
+            </div>`).join('')}
+        </div>`;
+    }
+
+    this.showModal(html);
   }
 
   // ---- 시장 탭 ----

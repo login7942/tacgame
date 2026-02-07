@@ -234,7 +234,11 @@ export class CombatSystem {
   // ---- 전투 종료 ----
   endCombat(reason) {
     this.inCombat = false;
-    this.emit('combatEnd', { reason, snapshot: this.getSnapshot() });
+    this.emit('combatEnd', {
+      reason,
+      monsterId: this.state.enemyId, // 도감 등록을 위해 추가
+      snapshot: this.getSnapshot()
+    });
     this.cb.onStateChanged();
 
     // 자동전투 중이면 다음 전투
