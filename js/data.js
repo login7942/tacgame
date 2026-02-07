@@ -798,3 +798,56 @@ export const ENV_NAMES = {
   fire: '🔥 고열', cold: '❄️ 극한', lightning: '⚡ 뇌전',
   void: '🌑 공허', pressure: '🫧 고압', radiation: '☢️ 방사선', dark: '🌑 암흑',
 };
+
+// ---- 용병 타입 ----
+export const MERCENARY_TYPES = {
+  warrior: { name: '전사', icon: '⚔️', baseStats: { str: 14, dex: 6, int: 4, vit: 12, luck: 4 },
+    desc: '높은 체력과 공격력의 근접 전사',
+    classBonus: { survivalBonus: 0.15, damageMultiplier: 1.1, lootBonus: 0, speedBonus: 0 } },
+  mage: { name: '마법사', icon: '🔮', baseStats: { str: 4, dex: 6, int: 16, vit: 6, luck: 8 },
+    desc: '속성 약점 몬스터에게 강력한 마법사',
+    classBonus: { survivalBonus: 0, damageMultiplier: 1.0, elementalDmgBonus: 0.5, lootBonus: 0, speedBonus: 0 } },
+  rogue: { name: '도적', icon: '🗡️', baseStats: { str: 8, dex: 14, int: 4, vit: 6, luck: 12 },
+    desc: '빠른 원정과 높은 전리품 획득률',
+    classBonus: { survivalBonus: 0, damageMultiplier: 1.0, lootBonus: 0.3, speedBonus: 0.2 } },
+  paladin: { name: '성기사', icon: '🛡️', baseStats: { str: 10, dex: 6, int: 10, vit: 12, luck: 6 },
+    desc: '균형 잡힌 스탯과 높은 생존력',
+    classBonus: { survivalBonus: 0.2, damageMultiplier: 1.05, lootBonus: 0, speedBonus: 0, healBonus: 0.3 } },
+  archer: { name: '궁수', icon: '🏹', baseStats: { str: 10, dex: 14, int: 4, vit: 8, luck: 8 },
+    desc: '높은 공격력의 원거리 딜러',
+    classBonus: { survivalBonus: 0.05, damageMultiplier: 1.2, lootBonus: 0.1, speedBonus: 0.1 } },
+};
+
+export const MERCENARY_NAMES = {
+  warrior: ['강철 칼날','전장의 호위병','번개 주먹','미스릴 방패','불꽃 검사',
+            '대지의 수호자','바위 분쇄자','철벽 전사','격노의 전사','왕의 근위병'],
+  mage:    ['별빛 마법사','화염 술사','빙결 마도사','천둥 마법사','심연의 현자',
+            '마력의 수호자','룬 각성자','차원 마법사','정령 소환사','시간의 현자'],
+  rogue:   ['그림자 칼날','밤의 도적','은밀한 추적자','독안개 도적','쌍칼 도적',
+            '절도의 달인','어둠 암살자','유령 도적','민첩한 날쌘이','보물 사냥꾼'],
+  paladin: ['빛의 기사','성스러운 수호자','황금 방패','축복의 기사','신성한 심판관',
+            '빛나는 철갑','정의의 기사','은총의 수호자','축복의 힘','하늘의 기사'],
+  archer:  ['매의 눈','바람의 궁수','독수리 사수','정밀 저격수','숲의 명궁',
+            '유성 사수','은화살 궁수','폭풍 사수','천리안 궁수','달빛 명사수'],
+};
+
+export const MERCENARY_HIRE_COSTS = {
+  warrior: 300, mage: 400, rogue: 350, paladin: 500, archer: 350,
+};
+
+// ---- 용병 스태미나 음식 ----
+export const MERC_STAMINA_FOOD = [
+  { id: 'herb_stew',      stamina: 25, name: '허브 스튜' },
+  { id: 'nutrient_soup',  stamina: 40, name: '영양 수프' },
+  { id: 'energy_steak',   stamina: 60, name: '에너지 스테이크' },
+];
+
+// ---- 원정 설정 ----
+export const EXPEDITION_CONFIG = {
+  duration:     { 1: 300000, 2: 600000, 3: 900000, 4: 1200000, 5: 1500000, 6: 1800000 },
+  staminaCost:  { 1: 20, 2: 25, 3: 30, 4: 35, 5: 38, 6: 40 },
+  encounters:   { 1: 5, 2: 7, 3: 9, 4: 11, 5: 13, 6: 15 },
+  staminaRecoveryInterval: 30,
+  staminaRecoveryAmount: 1,
+  maxStamina: 100,
+};

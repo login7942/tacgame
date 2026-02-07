@@ -1028,6 +1028,121 @@ body {
   margin-top: 6px;
 }
 
+/* ===== Expedition / Mercenary ===== */
+.merc-card {
+  background: var(--card-bg, #1a1a2e);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.merc-card:hover { border-color: var(--accent, #4fc3f7); }
+.merc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.merc-name { font-weight: bold; font-size: 13px; }
+.merc-class { font-size: 11px; color: #aaa; margin-bottom: 4px; }
+
+.status-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: bold;
+}
+.status-badge.idle { background: #2e7d32; color: #c8e6c9; }
+.status-badge.expedition { background: #1565c0; color: #bbdefb; }
+.status-badge.recovering { background: #e65100; color: #ffe0b2; }
+
+.expedition-active-card {
+  background: var(--card-bg, #1a1a2e);
+  border: 1px solid #1565c0;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 6px;
+}
+.expedition-active-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.expedition-result {
+  border-bottom: 1px solid #333;
+  padding: 6px 0;
+  font-size: 12px;
+}
+.expedition-result:last-child { border-bottom: none; }
+.expedition-result-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.expedition-result.success .expedition-result-header { color: #81c784; }
+.expedition-result.fail .expedition-result-header { color: #ef9a9a; }
+.expedition-result-detail {
+  color: #aaa;
+  font-size: 11px;
+}
+
+/* Hire modal */
+.hire-option {
+  background: var(--card-bg, #1a1a2e);
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 6px;
+}
+.hire-option.disabled { opacity: 0.5; }
+.hire-option-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+.hire-cost { color: #ffd54f; }
+.hire-option-desc { font-size: 11px; color: #aaa; margin-bottom: 4px; }
+.hire-option-stats { font-size: 11px; color: #889; margin-bottom: 6px; }
+
+/* Mercenary detail modal */
+.merc-detail-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  margin: 8px 0;
+}
+.merc-equip-row {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.merc-equip-select {
+  background: #1a1a2e;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  margin-top: 2px;
+  width: 100%;
+}
+
+/* Expedition zone list in dispatch */
+.expedition-zone-list { max-height: 300px; overflow-y: auto; }
+.expedition-zone-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #333;
+  font-size: 12px;
+  gap: 8px;
+}
+.expedition-zone-option:last-child { border-bottom: none; }
+
 /* ===== Responsive ===== */
 @media (min-width: 600px) {
   .card-grid { grid-template-columns: repeat(4, 1fr); }

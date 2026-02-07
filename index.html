@@ -41,6 +41,7 @@
       <button class="tab-btn" data-tab="crafting">🔨 제작</button>
       <button class="tab-btn" data-tab="workers">👷 일꾼</button>
       <button class="tab-btn" data-tab="combat">⚔️ 전투</button>
+      <button class="tab-btn" data-tab="expedition">🏰 원정대</button>
       <button class="tab-btn" data-tab="vehicles">🚀 탈것</button>
       <button class="tab-btn" data-tab="codex">📖 도감</button>
       <button class="tab-btn" data-tab="missions">📜 미션</button>
@@ -116,6 +117,17 @@
           <h3>⚔️ 레이드 보스</h3>
           <div id="raid-list"></div>
         </div>
+      </div>
+
+      <!-- Expedition Tab -->
+      <div class="tab-panel" id="panel-expedition">
+        <div class="panel-header">
+          <h2>🏰 원정대</h2>
+          <button id="btn-hire-merc" class="btn btn-primary">용병 고용 💰</button>
+        </div>
+        <div id="active-expeditions"></div>
+        <div id="mercenary-list" class="card-grid"></div>
+        <div id="expedition-history"></div>
       </div>
 
       <!-- Vehicles Tab -->

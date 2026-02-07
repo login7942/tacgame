@@ -5,13 +5,16 @@
 import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          WORKER_TYPES, WORKER_NAMES, HIRE_COSTS, MARKET_BASE_PRICES,
          EXP_TABLE, INHERITABLE_CATEGORIES, ENV_NAMES,
-         BYPRODUCT_RULES, WORKER_FOOD_TABLE } from './data.js';
+         BYPRODUCT_RULES, WORKER_FOOD_TABLE,
+         MERCENARY_TYPES, MERCENARY_NAMES, MERCENARY_HIRE_COSTS,
+         MERC_STAMINA_FOOD, EXPEDITION_CONFIG } from './data.js';
 import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
 import { MarketSystem } from './systems/market.js';
 import { CodexSystem } from './systems/codex.js';
 import { MissionSystem } from './systems/missions.js';
+import { ExpeditionSystem } from './systems/expedition.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -62,6 +65,12 @@ function createDefaultState() {
       achievements: {},
       lastDailyReset: '', lastWeeklyReset: '',
     },
+    mercenaries: [],
+    expedition: {
+      activeExpeditions: [],
+      expeditionHistory: [],
+      staminaTickCounter: 0,
+    },
     tickCount: 0,
     lastSave: Date.now(),
   };
@@ -102,6 +111,7 @@ export class GameEngine {
     this.initMarketSystem();
     this.initCodexSystem();
     this.initMissionSystem();
+    this.initExpeditionSystem();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
   }
@@ -423,6 +433,175 @@ export class GameEngine {
     });
   }
 
+  // ---- 원정 시스템 초기화 (콜백 브릿지) ----
+  initExpeditionSystem() {
+    this.expedition = new ExpeditionSystem({
+      getMercenary: (id) => this.state.mercenaries.find(m => m.id === id),
+      getAllMercenaries: () => this.state.mercenaries,
+      updateMercenary: (id, data) => {
+        const idx = this.state.mercenaries.findIndex(m => m.id === id);
+        if (idx >= 0) Object.assign(this.state.mercenaries[idx], data);
+      },
+      getMercCombatPower: (merc) => this.getMercenaryCombatPower(merc),
+      addLoot: (items) => {
+        for (const item of items) this.addItem(item.id, item.amount);
+      },
+      addGold: (amt) => {
+        this.state.player.gold += amt;
+        this.state.stats.totalGoldEarned += amt;
+      },
+      addMercExp: (mercId, amount) => this.gainMercExp(mercId, amount),
+      getItemName: (id) => RESOURCES[id]?.name || id,
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    // 기존 state.expedition에서 복원
+    if (this.state.expedition) {
+      this.expedition.setState(this.state.expedition);
+    }
+
+    // ExpeditionSystem 이벤트 → GameEngine 이벤트 전달
+    this.expedition.on('toast', (t) => this.emit('toast', t));
+    this.expedition.on('expeditionComplete', (data) => {
+      // 도감 등록
+      if (this.codex && data.totalLoot) {
+        for (const [resId] of Object.entries(data.totalLoot)) {
+          this.codex.discoverResource(resId, 0);
+        }
+      }
+      this.emit('stateChanged', this.state);
+    });
+  }
+
+  // ---- 용병 고용 ----
+  hireMercenary(type) {
+    const cost = MERCENARY_HIRE_COSTS[type];
+    if (!cost) return;
+    if (this.state.player.gold < cost) {
+      this.emit('toast', { msg: `골드가 부족합니다! (${cost}G 필요)`, type: 'error' });
+      return;
+    }
+    this.state.player.gold -= cost;
+    const mType = MERCENARY_TYPES[type];
+    const names = MERCENARY_NAMES[type];
+    const merc = {
+      id: uid(),
+      name: names[rand(0, names.length - 1)],
+      type,
+      level: 1,
+      exp: 0,
+      stats: { ...mType.baseStats },
+      equipment: { weapon: null, armor: null },
+      stamina: EXPEDITION_CONFIG.maxStamina,
+      maxStamina: EXPEDITION_CONFIG.maxStamina,
+      status: 'idle',
+      recoverUntil: 0,
+      expeditionCount: 0,
+      totalKills: 0,
+    };
+    // 스탯 랜덤 보정 ±3
+    for (const k of Object.keys(merc.stats)) {
+      merc.stats[k] += rand(-3, 3);
+      merc.stats[k] = Math.max(1, merc.stats[k]);
+    }
+    this.state.mercenaries.push(merc);
+    this.emit('toast', { msg: `${merc.name} 고용! (${mType.name})`, type: 'success' });
+    this.emit('stateChanged', this.state);
+  }
+
+  // ---- 용병 장비 장착 (무기/방어구만) ----
+  equipMercenary(mercId, equipmentUid) {
+    const merc = this.state.mercenaries.find(m => m.id === mercId);
+    if (!merc) return;
+    const eqInstance = this.getEquipmentByUid(equipmentUid);
+    if (!eqInstance) return;
+    const base = EQUIPMENT[eqInstance.baseId];
+    if (!base) return;
+    const slot = base.slot;
+    if (slot !== 'weapon' && slot !== 'armor') {
+      this.emit('toast', { msg: '용병은 무기와 방어구만 장착 가능합니다.', type: 'error' });
+      return;
+    }
+    // 같은 장비면 해제
+    if (merc.equipment[slot] === equipmentUid) {
+      merc.equipment[slot] = null;
+      this.emit('toast', { msg: '장비 해제', type: 'info' });
+    } else {
+      // 다른 곳에서 해제
+      for (const m of this.state.mercenaries) {
+        if (m.equipment[slot] === equipmentUid) m.equipment[slot] = null;
+      }
+      for (const w of this.state.workers) {
+        for (const s of Object.keys(w.equipment)) {
+          if (w.equipment[s] === equipmentUid) w.equipment[s] = null;
+        }
+      }
+      if (this.state.equippedGear[slot] === equipmentUid) {
+        this.state.equippedGear[slot] = null;
+      }
+      merc.equipment[slot] = equipmentUid;
+      const displayName = this.enhancement ? this.enhancement.formatEquipmentName(eqInstance) : eqInstance.name;
+      this.emit('toast', { msg: `${merc.name}에게 ${displayName} 장착!`, type: 'success' });
+    }
+    this.emit('stateChanged', this.state);
+  }
+
+  // ---- 용병 전투력 계산 ----
+  getMercenaryCombatPower(merc) {
+    let power = merc.stats.str * 2 + merc.stats.dex + merc.stats.int * 0.5 + merc.stats.vit;
+    power += merc.level * 3;
+    for (const eqUid of Object.values(merc.equipment)) {
+      if (eqUid) {
+        const stats = this.getEnhancedEquipmentStats(eqUid);
+        if (stats.attack) power += stats.attack;
+        if (stats.defense) power += stats.defense * 0.5;
+        if (stats.hp) power += stats.hp * 0.3;
+      }
+    }
+    return power;
+  }
+
+  // ---- 용병 경험치/레벨업 ----
+  gainMercExp(mercId, amount) {
+    const merc = this.state.mercenaries.find(m => m.id === mercId);
+    if (!merc) return;
+    merc.exp += amount;
+    while (merc.level < 30 && merc.exp >= merc.level * 30) {
+      merc.exp -= merc.level * 30;
+      merc.level++;
+      const statKeys = Object.keys(merc.stats);
+      for (let i = 0; i < 2; i++) {
+        const key = statKeys[rand(0, statKeys.length - 1)];
+        merc.stats[key] += 1;
+      }
+      this.emit('toast', { msg: `${merc.name} 레벨 ${merc.level} 달성!`, type: 'success' });
+    }
+  }
+
+  // ---- 용병 스태미나 음식 사용 ----
+  feedMercenaryStamina(mercId, foodId) {
+    const merc = this.state.mercenaries.find(m => m.id === mercId);
+    if (!merc) return;
+    const foodDef = MERC_STAMINA_FOOD.find(f => f.id === foodId);
+    if (!foodDef) return;
+    if (!this.hasItem(foodId, 1)) {
+      this.emit('toast', { msg: '음식이 없습니다!', type: 'error' });
+      return;
+    }
+    this.removeItem(foodId, 1);
+    merc.stamina = Math.min(merc.maxStamina, merc.stamina + foodDef.stamina);
+    this.emit('toast', { msg: `${merc.name}에게 ${foodDef.name} 사용! 스태미나 +${foodDef.stamina}`, type: 'success' });
+    this.emit('stateChanged', this.state);
+  }
+
+  // ---- 원정 파견 위임 ----
+  dispatchExpedition(mercId, zoneId) {
+    return this.expedition ? this.expedition.dispatch(mercId, zoneId) : { success: false };
+  }
+  getExpeditionSnapshot() {
+    return this.expedition ? this.expedition.getSnapshot() : { activeExpeditions: [], history: [] };
+  }
+
   // ---- 저장/불러오기 ----
   saveState() {
     this.state.lastSave = Date.now();
@@ -437,6 +616,10 @@ export class GameEngine {
     // MissionSystem 상태 동기화
     if (this.missions) {
       this.state.missions = this.missions.getState();
+    }
+    // ExpeditionSystem 상태 동기화
+    if (this.expedition) {
+      this.state.expedition = this.expedition.getState();
     }
     try {
       localStorage.setItem('tacgame_save', JSON.stringify(this.state));
@@ -519,6 +702,10 @@ export class GameEngine {
       }
       if (!state.workerMaintenance) state.workerMaintenance = { autoFeed: true, autoRepair: true };
 
+      // ===== Migration: 용병/원정 시스템 =====
+      if (!state.mercenaries) state.mercenaries = [];
+      if (!state.expedition) state.expedition = { activeExpeditions: [], expeditionHistory: [], staminaTickCounter: 0 };
+
       return state;
     } catch { return null; }
   }
@@ -526,6 +713,7 @@ export class GameEngine {
     localStorage.removeItem('tacgame_save');
     this.state = createDefaultState();
     this.initMarket();
+    this.initExpeditionSystem();
     this.emit('stateChanged', this.state);
     this.emit('toast', { msg: '게임이 초기화되었습니다.', type: 'info' });
   }
@@ -605,6 +793,11 @@ export class GameEngine {
     // 미션 진행도 업데이트 (5초마다)
     if (s.tickCount % 5 === 0 && this.missions) {
       this.missions.update(s);
+    }
+
+    // 원정 시스템 업데이트 (매 틱)
+    if (this.expedition) {
+      this.expedition.update();
     }
 
     // 쿨다운
@@ -1444,6 +1637,7 @@ export class GameEngine {
     const oldVehicles = [...s.vehicles]; // 탈것은 유지
     const oldUnlockedZones = [...s.unlockedZones];
     const oldWorkers = s.workers.filter(w => w.level >= 5); // 레벨 5 이상 일꾼만 유지
+    const oldMercenaries = s.mercenaries.filter(m => m.level >= 3); // 레벨 3 이상 용병 유지
     const oldStats = { ...s.stats };
     const oldCodex = this.codex ? this.codex.getState() : null;
     const oldMissions = this.missions ? this.missions.getState() : null;
@@ -1461,6 +1655,12 @@ export class GameEngine {
       w.deployedZone = null; // 배치 해제
       w.hunger = 100;
       w.toolDurability = w.maxToolDurability || 500;
+    }
+    this.state.mercenaries = oldMercenaries;
+    for (const m of this.state.mercenaries) {
+      m.status = 'idle';
+      m.stamina = m.maxStamina || EXPEDITION_CONFIG.maxStamina;
+      m.recoverUntil = 0;
     }
     this.state.stats = oldStats;
 
@@ -1490,6 +1690,7 @@ export class GameEngine {
     if (oldCodex) this.codex.setState(oldCodex);
     this.initMissionSystem();
     if (oldMissions) this.missions.setState(oldMissions);
+    this.initExpeditionSystem();
     this.recalcPlayerStats();
     this.saveState();
     this.emit('toast', { msg: `부활! 레거시 포인트로 영구 보너스 강화!`, type: 'info' });

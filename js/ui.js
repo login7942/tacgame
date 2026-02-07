@@ -3,7 +3,9 @@
 // ============================================================
 import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          WORKER_TYPES, HIRE_COSTS, ENV_NAMES, MARKET_BASE_PRICES,
-         EXP_TABLE } from './data.js';
+         EXP_TABLE,
+         MERCENARY_TYPES, MERCENARY_HIRE_COSTS, MERCENARY_NAMES,
+         MERC_STAMINA_FOOD, EXPEDITION_CONFIG } from './data.js';
 
 export class GameUI {
   constructor(engine) {
@@ -74,6 +76,7 @@ export class GameUI {
       case 'crafting': this.renderCrafting(); break;
       case 'workers': this.renderWorkers(); break;
       case 'combat': this.renderCombat(); break;
+      case 'expedition': this.renderExpedition(); break;
       case 'vehicles': this.renderVehicles(); break;
       case 'codex': this.renderCodex(); break;
       case 'missions': this.renderMissions(); break;
@@ -1938,6 +1941,288 @@ export class GameUI {
     toast.textContent = msg;
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+  }
+
+  // ---- 원정대 탭 ----
+  renderExpedition() {
+    const s = this.engine.getState();
+    if (!s) return;
+    const snapshot = this.engine.getExpeditionSnapshot();
+
+    // 고용 버튼
+    const hireBtn = document.getElementById('btn-hire-merc');
+    if (hireBtn) {
+      hireBtn.onclick = () => this.showHireMercModal();
+    }
+
+    // 활성 원정
+    const activeEl = document.getElementById('active-expeditions');
+    if (snapshot.activeExpeditions.length > 0) {
+      activeEl.innerHTML = `<h3 style="margin:8px 0 4px;">진행중 원정</h3>` +
+        snapshot.activeExpeditions.map(e => {
+          const pct = Math.floor(e.progress * 100);
+          const remainMin = Math.floor(e.remainingMs / 60000);
+          const remainSec = Math.floor((e.remainingMs % 60000) / 1000);
+          return `<div class="expedition-active-card">
+            <div class="expedition-active-header">
+              <span>${e.mercenaryIcon} ${e.mercenaryName}</span>
+              <span class="text-muted">${e.zoneName}</span>
+            </div>
+            <div class="mini-bar" style="height:8px;margin:4px 0;">
+              <div class="mini-fill" style="width:${pct}%;background:var(--accent,#4fc3f7);"></div>
+            </div>
+            <div style="font-size:11px;color:#aaa;text-align:right;">${remainMin}분 ${remainSec}초 남음</div>
+          </div>`;
+        }).join('');
+    } else {
+      activeEl.innerHTML = '';
+    }
+
+    // 용병 목록
+    const listEl = document.getElementById('mercenary-list');
+    if (s.mercenaries.length === 0) {
+      listEl.innerHTML = '<div class="text-center text-muted" style="padding:20px;">고용된 용병이 없습니다. 용병을 고용하여 원정을 보내보세요!</div>';
+    } else {
+      listEl.innerHTML = s.mercenaries.map(m => {
+        const mType = MERCENARY_TYPES[m.type];
+        const power = this.engine.getMercenaryCombatPower(m);
+        const staminaPct = Math.floor((m.stamina / (m.maxStamina || 100)) * 100);
+        const statusText = m.status === 'idle' ? '대기' : m.status === 'expedition' ? '원정중' : '회복중';
+        const statusClass = m.status === 'idle' ? 'idle' : m.status === 'expedition' ? 'expedition' : 'recovering';
+        return `<div class="merc-card" data-merc="${m.id}">
+          <div class="merc-header">
+            <span class="merc-name">${mType.icon} ${m.name} <span class="text-muted">Lv.${m.level}</span></span>
+            <span class="status-badge ${statusClass}">${statusText}</span>
+          </div>
+          <div class="merc-class">${mType.name} | 전투력 ${Math.floor(power)}</div>
+          <div class="worker-stats">
+            <span><span class="stat-label">힘</span> <span class="stat-value">${m.stats.str}</span></span>
+            <span><span class="stat-label">민첩</span> <span class="stat-value">${m.stats.dex}</span></span>
+            <span><span class="stat-label">지능</span> <span class="stat-value">${m.stats.int}</span></span>
+            <span><span class="stat-label">체력</span> <span class="stat-value">${m.stats.vit}</span></span>
+            <span><span class="stat-label">행운</span> <span class="stat-value">${m.stats.luck}</span></span>
+          </div>
+          <div class="worker-maint-row" style="margin-top:4px;">
+            <span>⚡</span>
+            <div class="mini-bar"><div class="mini-fill${staminaPct < 30 ? ' warning' : ''}" style="width:${staminaPct}%"></div></div>
+            <span class="mini-label">${Math.floor(m.stamina)}/${m.maxStamina || 100}</span>
+          </div>
+        </div>`;
+      }).join('');
+
+      listEl.querySelectorAll('.merc-card').forEach(card => {
+        card.addEventListener('click', () => {
+          this.showMercenaryDetail(card.dataset.merc);
+        });
+      });
+    }
+
+    // 원정 기록
+    const historyEl = document.getElementById('expedition-history');
+    if (snapshot.history.length > 0) {
+      historyEl.innerHTML = `<h3 style="margin:12px 0 4px;">최근 원정 기록</h3>` +
+        snapshot.history.map(r => {
+          const lootText = Object.entries(r.totalLoot || {}).map(([id, amt]) =>
+            `${RESOURCES[id]?.icon || ''} ${RESOURCES[id]?.name || id} x${amt}`
+          ).join(', ') || '없음';
+          return `<div class="expedition-result ${r.success ? 'success' : 'fail'}">
+            <div class="expedition-result-header">
+              <span>${r.success ? '✅' : '❌'} ${r.mercenaryIcon} ${r.mercenaryName} → ${r.zoneName}</span>
+              <span>${r.wins}/${r.totalEncounters} 승리</span>
+            </div>
+            <div class="expedition-result-detail">
+              💰 ${r.totalGold}G | ⭐ ${r.mercExpGained} EXP | 📦 ${lootText}
+            </div>
+          </div>`;
+        }).join('');
+    } else {
+      historyEl.innerHTML = '';
+    }
+  }
+
+  // ---- 용병 고용 모달 ----
+  showHireMercModal() {
+    const s = this.engine.getState();
+    const html = `<h3>용병 고용</h3>
+      <div style="margin-bottom:8px;color:#aaa;">보유 골드: ${s.player.gold.toLocaleString()}G</div>
+      <div class="hire-options">
+        ${Object.entries(MERCENARY_TYPES).map(([type, data]) => {
+          const cost = MERCENARY_HIRE_COSTS[type];
+          const canAfford = s.player.gold >= cost;
+          return `<div class="hire-option ${canAfford ? '' : 'disabled'}">
+            <div class="hire-option-header">
+              <span>${data.icon} ${data.name}</span>
+              <span class="hire-cost">${cost}G</span>
+            </div>
+            <div class="hire-option-desc">${data.desc}</div>
+            <div class="hire-option-stats">
+              힘 ${data.baseStats.str} / 민첩 ${data.baseStats.dex} / 지능 ${data.baseStats.int} / 체력 ${data.baseStats.vit} / 행운 ${data.baseStats.luck}
+            </div>
+            <button class="btn btn-sm ${canAfford ? 'btn-primary' : 'btn-disabled'}" data-hire-merc="${type}" ${canAfford ? '' : 'disabled'}>고용</button>
+          </div>`;
+        }).join('')}
+      </div>`;
+
+    this.showModal(html);
+
+    document.querySelectorAll('[data-hire-merc]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.engine.hireMercenary(btn.dataset.hireMerc);
+        this.closeModal();
+      });
+    });
+  }
+
+  // ---- 용병 상세 모달 ----
+  showMercenaryDetail(mercId) {
+    const s = this.engine.getState();
+    const merc = s.mercenaries.find(m => m.id === mercId);
+    if (!merc) return;
+
+    const mType = MERCENARY_TYPES[merc.type];
+    const power = this.engine.getMercenaryCombatPower(merc);
+    const staminaPct = Math.floor((merc.stamina / (merc.maxStamina || 100)) * 100);
+
+    // 장비 정보
+    const weaponInfo = merc.equipment.weapon
+      ? (() => { const eq = this.engine.getEquipmentByUid(merc.equipment.weapon); return eq ? `${EQUIPMENT[eq.baseId]?.icon || ''} ${eq.name}` : '없음'; })()
+      : '없음';
+    const armorInfo = merc.equipment.armor
+      ? (() => { const eq = this.engine.getEquipmentByUid(merc.equipment.armor); return eq ? `${EQUIPMENT[eq.baseId]?.icon || ''} ${eq.name}` : '없음'; })()
+      : '없음';
+
+    // 장착 가능 장비 목록
+    const availWeapons = s.equipment.filter(eq => {
+      const base = EQUIPMENT[eq.baseId];
+      return base && base.slot === 'weapon' &&
+        eq.uid !== s.equippedGear.weapon &&
+        !s.workers.some(w => w.equipment.weapon === eq.uid) &&
+        !s.mercenaries.some(m => m.id !== mercId && m.equipment.weapon === eq.uid);
+    });
+    const availArmors = s.equipment.filter(eq => {
+      const base = EQUIPMENT[eq.baseId];
+      return base && base.slot === 'armor' &&
+        eq.uid !== s.equippedGear.armor &&
+        !s.workers.some(w => w.equipment.armor === eq.uid) &&
+        !s.mercenaries.some(m => m.id !== mercId && m.equipment.armor === eq.uid);
+    });
+
+    // 음식 목록
+    const foodOptions = MERC_STAMINA_FOOD.map(f => {
+      const owned = s.inventory[f.id] || 0;
+      return `<button class="btn btn-sm ${owned > 0 ? 'btn-primary' : 'btn-disabled'}" data-merc-feed="${f.id}" ${owned > 0 ? '' : 'disabled'}>
+        ${f.name} (+${f.stamina}) [${owned}개]
+      </button>`;
+    }).join(' ');
+
+    const statusText = merc.status === 'idle' ? '대기중' :
+      merc.status === 'expedition' ? '원정중' : '회복중';
+
+    const html = `<h3>${mType.icon} ${merc.name}</h3>
+      <div style="margin-bottom:8px;">
+        <span class="status-badge ${merc.status}">${statusText}</span>
+        ${mType.name} Lv.${merc.level} | 전투력 ${Math.floor(power)}
+      </div>
+      <div class="merc-detail-stats">
+        <div>힘 <b>${merc.stats.str}</b></div>
+        <div>민첩 <b>${merc.stats.dex}</b></div>
+        <div>지능 <b>${merc.stats.int}</b></div>
+        <div>체력 <b>${merc.stats.vit}</b></div>
+        <div>행운 <b>${merc.stats.luck}</b></div>
+      </div>
+      <div style="margin:8px 0;">
+        EXP: ${merc.exp}/${merc.level * 30} | 원정 ${merc.expeditionCount || 0}회 | 처치 ${merc.totalKills || 0}
+      </div>
+
+      <h4>장비</h4>
+      <div class="merc-equip-row">
+        <div>⚔️ 무기: ${weaponInfo}
+          ${merc.equipment.weapon ? `<button class="btn btn-sm" data-merc-unequip="weapon">해제</button>` : ''}
+        </div>
+        ${availWeapons.length > 0 ? `<select data-merc-equip-slot="weapon" class="merc-equip-select">
+          <option value="">-- 무기 장착 --</option>
+          ${availWeapons.map(eq => `<option value="${eq.uid}">${eq.name} (+${EQUIPMENT[eq.baseId]?.stats?.attack || 0})</option>`).join('')}
+        </select>` : ''}
+      </div>
+      <div class="merc-equip-row">
+        <div>🛡️ 방어구: ${armorInfo}
+          ${merc.equipment.armor ? `<button class="btn btn-sm" data-merc-unequip="armor">해제</button>` : ''}
+        </div>
+        ${availArmors.length > 0 ? `<select data-merc-equip-slot="armor" class="merc-equip-select">
+          <option value="">-- 방어구 장착 --</option>
+          ${availArmors.map(eq => `<option value="${eq.uid}">${eq.name} (+${EQUIPMENT[eq.baseId]?.stats?.defense || 0})</option>`).join('')}
+        </select>` : ''}
+      </div>
+
+      <h4>스태미나</h4>
+      <div class="worker-maint-row">
+        <span>⚡</span>
+        <div class="mini-bar" style="height:10px;"><div class="mini-fill${staminaPct < 30 ? ' warning' : ''}" style="width:${staminaPct}%"></div></div>
+        <span class="mini-label">${Math.floor(merc.stamina)}/${merc.maxStamina || 100}</span>
+      </div>
+      <div style="margin:6px 0;">${foodOptions}</div>
+
+      ${merc.status === 'idle' ? `
+        <h4>원정 파견</h4>
+        <div class="expedition-zone-list">
+          ${s.unlockedZones.map(zId => {
+            const zone = ZONES[zId];
+            if (!zone || !zone.monsters || zone.monsters.length === 0) return '';
+            const tier = zone.tier || 1;
+            const cost = EXPEDITION_CONFIG.staminaCost[tier] || 20;
+            const dur = EXPEDITION_CONFIG.duration[tier] || 300000;
+            const speedBonus = mType?.classBonus?.speedBonus || 0;
+            const realDur = Math.floor(dur * (1 - speedBonus));
+            const canDispatch = merc.stamina >= cost;
+            return `<div class="expedition-zone-option">
+              <span>${zone.icon} ${zone.name} (T${tier})</span>
+              <span class="text-muted">${Math.floor(realDur / 60000)}분 | ⚡${cost}</span>
+              <button class="btn btn-sm ${canDispatch ? 'btn-primary' : 'btn-disabled'}" data-dispatch-zone="${zId}" ${canDispatch ? '' : 'disabled'}>파견</button>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : merc.status === 'recovering' ? `
+        <div style="margin-top:8px;color:#ff9800;">
+          회복 중... ${Math.max(0, Math.ceil((merc.recoverUntil - Date.now()) / 1000))}초 남음
+        </div>
+      ` : ''}
+    `;
+
+    this.showModal(html);
+
+    // 이벤트 바인딩
+    document.querySelectorAll('[data-merc-feed]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.engine.feedMercenaryStamina(mercId, btn.dataset.mercFeed);
+        this.showMercenaryDetail(mercId); // 리프레시
+      });
+    });
+
+    document.querySelectorAll('[data-merc-unequip]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const slot = btn.dataset.mercUnequip;
+        if (merc.equipment[slot]) {
+          this.engine.equipMercenary(mercId, merc.equipment[slot]); // 토글 해제
+          this.showMercenaryDetail(mercId);
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-merc-equip-slot]').forEach(sel => {
+      sel.addEventListener('change', () => {
+        if (sel.value) {
+          this.engine.equipMercenary(mercId, sel.value);
+          this.showMercenaryDetail(mercId);
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-dispatch-zone]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.engine.dispatchExpedition(mercId, btn.dataset.dispatchZone);
+        this.closeModal();
+      });
+    });
   }
 
   statName(key) {
