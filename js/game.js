@@ -4,7 +4,8 @@
 // ============================================================
 import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          WORKER_TYPES, WORKER_NAMES, HIRE_COSTS, MARKET_BASE_PRICES,
-         EXP_TABLE, INHERITABLE_CATEGORIES, ENV_NAMES } from './data.js';
+         EXP_TABLE, INHERITABLE_CATEGORIES, ENV_NAMES,
+         BYPRODUCT_RULES, WORKER_FOOD_TABLE } from './data.js';
 import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
@@ -46,6 +47,7 @@ function createDefaultState() {
     },
     inheritanceVault: [], // items preserved across death
     stats: { monstersKilled: 0, resourcesGathered: 0, itemsCrafted: 0, totalGoldEarned: 0 },
+    workerMaintenance: { autoFeed: true, autoRepair: true },
     codex: {
       entries: {
         resources: {},
@@ -324,6 +326,16 @@ export class GameEngine {
       removeItem: (id, amt) => this.removeItem(id, amt),
       addItem: (id, amt) => this.addItem(id, amt),
       getItemName: (id) => this.getItemName(id),
+      getItemIcon: (id) => RESOURCES[id]?.icon || '',
+      getItemCount: (id) => this.getItemCount(id),
+      getMaxResourceTier: () => {
+        let maxTier = 1;
+        for (const zId of this.state.unlockedZones) {
+          const zone = ZONES[zId];
+          if (zone && (zone.tier || 1) > maxTier) maxTier = zone.tier || 1;
+        }
+        return maxTier;
+      },
       onStateChanged: () => this.emit('stateChanged', this.state),
     });
 
@@ -499,6 +511,14 @@ export class GameEngine {
         console.log('[Migration] 장비 데이터 구조 변환 완료!');
       }
 
+      // ===== Migration: 일꾼 유지비 필드 =====
+      for (const w of state.workers || []) {
+        if (w.hunger === undefined) w.hunger = 100;
+        if (w.toolDurability === undefined) w.toolDurability = 500;
+        if (w.maxToolDurability === undefined) w.maxToolDurability = 500;
+      }
+      if (!state.workerMaintenance) state.workerMaintenance = { autoFeed: true, autoRepair: true };
+
       return state;
     } catch { return null; }
   }
@@ -563,6 +583,11 @@ export class GameEngine {
       this.workerGatherTick();
     }
 
+    // 일꾼 유지비 체크 (360틱 = 6분마다)
+    if (s.tickCount % 360 === 0 && s.workers.length > 0) {
+      this.workerMaintenanceTick();
+    }
+
     // 시장 가격 변동 (60초마다)
     if (s.tickCount % 60 === 0 && this.market) {
       this.market.updatePrices();
@@ -571,6 +596,10 @@ export class GameEngine {
     // 투자 결과 체크 (매 tick)
     if (this.market) {
       this.market.checkInvestments();
+    }
+    // 상인 의뢰 체크 (60틱마다)
+    if (s.tickCount % 60 === 0 && this.market) {
+      this.market.checkMerchantQuests();
     }
 
     // 미션 진행도 업데이트 (5초마다)
@@ -843,6 +872,21 @@ export class GameEngine {
     if (this.state.player.hp > stats.hp) this.state.player.hp = stats.hp;
   }
 
+  // ---- 부산물 체크 ----
+  checkByproduct(recipeId) {
+    const recipe = RECIPES.find(r => r.id === recipeId);
+    if (!recipe) return null;
+    for (const rule of BYPRODUCT_RULES) {
+      let matches = false;
+      if (rule.recipeIds && rule.recipeIds.includes(recipeId)) matches = true;
+      if (rule.recipeType && rule.recipeType === recipe.type) matches = true;
+      if (matches && Math.random() < rule.chance) {
+        return { id: rule.byproduct, amount: rule.amount || 1 };
+      }
+    }
+    return null;
+  }
+
   // ---- 제작 ----
   canCraft(recipeId) {
     const recipe = RECIPES.find(r => r.id === recipeId);
@@ -885,6 +929,11 @@ export class GameEngine {
       this.emit('toast', { msg: `${recipe.name} x${recipe.amount} 제작 완료!`, type: 'success' });
     }
     this.state.stats.itemsCrafted++;
+    const bp = this.checkByproduct(recipeId);
+    if (bp) {
+      this.addItem(bp.id, bp.amount);
+      this.emit('toast', { msg: `부산물: ${this.getItemName(bp.id)} x${bp.amount}`, type: 'info' });
+    }
     this.emit('stateChanged', this.state);
   }
 
@@ -921,6 +970,19 @@ export class GameEngine {
     }
 
     this.state.stats.itemsCrafted += actualCount;
+    // 부산물 생성
+    let bpTotals = {};
+    for (let i = 0; i < actualCount; i++) {
+      const bp = this.checkByproduct(recipeId);
+      if (bp) {
+        this.addItem(bp.id, bp.amount);
+        bpTotals[bp.id] = (bpTotals[bp.id] || 0) + bp.amount;
+      }
+    }
+    if (Object.keys(bpTotals).length > 0) {
+      const text = Object.entries(bpTotals).map(([id, amt]) => `${this.getItemName(id)} x${amt}`).join(', ');
+      this.emit('toast', { msg: `부산물: ${text}`, type: 'info' });
+    }
     this.emit('stateChanged', this.state);
 
     return actualCount;
@@ -1013,6 +1075,9 @@ export class GameEngine {
       equipment: { weapon: null, armor: null, tool: null, accessory: null },
       deployedZone: null,
       gatherCount: 0,
+      hunger: 100,
+      toolDurability: 500,
+      maxToolDurability: 500,
     };
     // 랜덤 보정 ±3
     for (const k of Object.keys(worker.stats)) {
@@ -1135,6 +1200,10 @@ export class GameEngine {
     // 영구 보너스
     eff *= (1 + this.state.permanentBonuses.workerEfficiency * 0.01);
 
+    // 유지비 페널티
+    if (worker.hunger !== undefined && worker.hunger <= 0) eff *= 0.5;
+    if (worker.toolDurability !== undefined && worker.toolDurability <= 0) eff *= 0.5;
+
     return eff;
   }
 
@@ -1171,6 +1240,10 @@ export class GameEngine {
           this.addItem(resId, amount);
           worker.gatherCount++;
           s.stats.resourcesGathered += amount;
+          // 도구 내구도 감소
+          if (worker.toolDurability !== undefined && worker.toolDurability > 0) {
+            worker.toolDurability--;
+          }
         }
       }
 
@@ -1183,6 +1256,71 @@ export class GameEngine {
         const statKeys = Object.keys(worker.stats);
         const upStat = statKeys[rand(0, statKeys.length - 1)];
         worker.stats[upStat] += 1;
+      }
+    }
+  }
+
+  // ---- 일꾼 유지비 ----
+  feedWorker(worker) {
+    const foodPriority = WORKER_FOOD_TABLE.map(f => f.id);
+    for (const foodId of foodPriority) {
+      const foodDef = WORKER_FOOD_TABLE.find(f => f.id === foodId);
+      if (!foodDef) continue;
+      if (this.hasItem(foodId, 1)) {
+        this.removeItem(foodId, 1);
+        worker.hunger = Math.min(100, worker.hunger + foodDef.hunger);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  repairWorkerTool(worker) {
+    if (this.hasItem('repair_kit', 1)) {
+      this.removeItem('repair_kit', 1);
+      worker.toolDurability = worker.maxToolDurability || 500;
+      return true;
+    }
+    return false;
+  }
+
+  workerMaintenanceTick() {
+    const s = this.state;
+    const maint = s.workerMaintenance || { autoFeed: true, autoRepair: true };
+    let hungryCount = 0;
+    let brokenCount = 0;
+
+    for (const worker of s.workers) {
+      if (!worker.deployedZone) continue;
+      if (worker.hunger === undefined) { worker.hunger = 100; worker.toolDurability = 500; worker.maxToolDurability = 500; }
+
+      // 배고픔 감소 (360틱마다 5 감소 → 7200틱=2시간에 100→0)
+      worker.hunger = Math.max(0, worker.hunger - 5);
+
+      // 자동 급식
+      if (worker.hunger < 50 && maint.autoFeed) {
+        this.feedWorker(worker);
+      }
+
+      // 자동 수리
+      if (worker.toolDurability <= 0 && maint.autoRepair) {
+        this.repairWorkerTool(worker);
+      }
+
+      if (worker.hunger <= 0) hungryCount++;
+      if (worker.toolDurability <= 0) brokenCount++;
+    }
+
+    // 경고
+    if (hungryCount > 0) {
+      const totalFood = WORKER_FOOD_TABLE.reduce((sum, f) => sum + (s.inventory[f.id] || 0), 0);
+      if (totalFood === 0) {
+        this.emit('toast', { msg: `⚠️ 일꾼 ${hungryCount}명이 배고픕니다! 식량이 없습니다!`, type: 'warning' });
+      }
+    }
+    if (brokenCount > 0) {
+      if (!this.hasItem('repair_kit', 1)) {
+        this.emit('toast', { msg: `⚠️ 일꾼 ${brokenCount}명의 도구가 파손됐습니다! 수리 도구가 없습니다!`, type: 'warning' });
       }
     }
   }
@@ -1271,6 +1409,14 @@ export class GameEngine {
     return this.market ? this.market.getActiveInvestments() : [];
   }
 
+  getMerchantQuests() {
+    return this.market ? this.market.getMerchantQuests() : [];
+  }
+
+  completeMerchantQuest(questId) {
+    return this.market ? this.market.completeMerchantQuest(questId) : { success: false };
+  }
+
   // ---- 사망 / 계승 ----
   die(cause) {
     const s = this.state;
@@ -1313,6 +1459,8 @@ export class GameEngine {
     this.state.workers = oldWorkers;
     for (const w of this.state.workers) {
       w.deployedZone = null; // 배치 해제
+      w.hunger = 100;
+      w.toolDurability = w.maxToolDurability || 500;
     }
     this.state.stats = oldStats;
 

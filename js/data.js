@@ -119,6 +119,15 @@ export const RESOURCES = {
   enhancement_stone:      { name: '강화석', tier: 1, category: 'craft', icon: '💎', crafted: true },
   advanced_enhancement:   { name: '고급 강화석', tier: 2, category: 'craft', icon: '💠', crafted: true },
   superior_enhancement:   { name: '최상급 강화석', tier: 3, category: 'craft', icon: '✨', crafted: true },
+
+  // === 부산물 ===
+  mineral_residue:  { name: '광물 찌꺼기', tier: 1, category: 'byproduct', icon: 'ite' },
+  metal_dust:       { name: '금속 가루',   tier: 1, category: 'byproduct', icon: '✧' },
+  empty_bottle:     { name: '빈 병',       tier: 1, category: 'byproduct', icon: '🫙' },
+  food_scraps:      { name: '남은 재료',   tier: 1, category: 'byproduct', icon: '🥡' },
+
+  // === 일꾼 소모품 ===
+  repair_kit:       { name: '수리 도구',   tier: 1, category: 'craft',     icon: '🔧', crafted: true },
 };
 
 // ---- 장비 정의 ----
@@ -604,6 +613,18 @@ export const RECIPES = [
     ingredients: [{ id:'void_shard', amount:4 },{ id:'dark_crystal', amount:3 },{ id:'gold_ingot', amount:2 }] },
   { id: 'eternity_ring', name: '영원의 반지', result: 'eternity_ring', type: 'equipment', amount: 1,
     ingredients: [{ id:'eternity_shard', amount:3 },{ id:'nebula_crystal', amount:5 },{ id:'void_alloy', amount:3 },{ id:'gold_ingot', amount:5 }] },
+
+  // === 부산물 활용 레시피 ===
+  { id: 'repair_kit', name: '수리 도구', result: 'repair_kit', type: 'material', amount: 1,
+    ingredients: [{ id:'iron_ingot', amount:1 },{ id:'wood', amount:2 }] },
+  { id: 'residue_enhancement', name: '찌꺼기 강화석', result: 'enhancement_stone', type: 'material', amount: 1,
+    ingredients: [{ id:'mineral_residue', amount:5 },{ id:'stone', amount:2 }] },
+  { id: 'dust_advanced_enhancement', name: '가루 고급 강화석', result: 'advanced_enhancement', type: 'material', amount: 1,
+    ingredients: [{ id:'metal_dust', amount:5 },{ id:'crystal', amount:1 }] },
+  { id: 'bottled_herb_potion', name: '재활용 약초 물약', result: 'herb_potion', type: 'food', amount: 1,
+    ingredients: [{ id:'empty_bottle', amount:1 },{ id:'herb', amount:2 }] },
+  { id: 'scraps_stew', name: '잔반 스튜', result: 'food_scraps', type: 'food', amount: 3,
+    ingredients: [{ id:'food_scraps', amount:2 },{ id:'herb', amount:1 },{ id:'salt', amount:1 }] },
 ];
 
 // ---- 탈것 정의 ----
@@ -689,6 +710,56 @@ export const HIRE_COSTS = {
 };
 
 // ---- 시장 기본가 ----
+// ---- 제작 부산물 규칙 ----
+export const BYPRODUCT_RULES = [
+  { recipeIds: ['iron_ingot','copper_ingot','steel','gold_ingot','mithril_ingot','reinforced_steel','void_alloy'],
+    byproduct: 'mineral_residue', chance: 0.10, amount: 1 },
+  { recipeType: 'equipment',
+    byproduct: 'metal_dust', chance: 0.10, amount: 1 },
+  { recipeIds: ['herb_potion','fire_potion','ice_potion','bottled_herb_potion'],
+    byproduct: 'empty_bottle', chance: 0.15, amount: 1 },
+  { recipeIds: ['cooked_meat','herb_stew','nutrient_soup','energy_steak','scraps_stew'],
+    byproduct: 'food_scraps', chance: 0.15, amount: 1 },
+];
+
+// ---- 일꾼 음식 테이블 ----
+export const WORKER_FOOD_TABLE = [
+  { id: 'food_scraps',  hunger: 30, name: '남은 재료' },
+  { id: 'cooked_meat',  hunger: 50, name: '구운 고기' },
+  { id: 'raw_meat',     hunger: 25, name: '생고기' },
+  { id: 'fish',         hunger: 30, name: '물고기' },
+  { id: 'mushroom',     hunger: 20, name: '버섯' },
+  { id: 'herb',         hunger: 10, name: '약초' },
+];
+
+// ---- 상인 의뢰 풀 ----
+export const MERCHANT_QUEST_POOL = [
+  { tier: 1, items: [
+    { id: 'wood', minQty: 20, maxQty: 50 }, { id: 'stone', minQty: 20, maxQty: 50 },
+    { id: 'fiber', minQty: 15, maxQty: 40 }, { id: 'raw_meat', minQty: 10, maxQty: 30 },
+    { id: 'rope', minQty: 5, maxQty: 15 }, { id: 'cooked_meat', minQty: 5, maxQty: 15 },
+  ]},
+  { tier: 2, items: [
+    { id: 'iron_ore', minQty: 15, maxQty: 40 }, { id: 'coal', minQty: 20, maxQty: 50 },
+    { id: 'iron_ingot', minQty: 5, maxQty: 20 }, { id: 'leather', minQty: 5, maxQty: 15 },
+    { id: 'enhancement_stone', minQty: 3, maxQty: 10 },
+  ]},
+  { tier: 3, items: [
+    { id: 'steel', minQty: 5, maxQty: 15 }, { id: 'mithril_ore', minQty: 5, maxQty: 15 },
+    { id: 'gold_ingot', minQty: 3, maxQty: 10 }, { id: 'fire_essence', minQty: 5, maxQty: 15 },
+  ]},
+  { tier: 4, items: [
+    { id: 'mithril_ingot', minQty: 3, maxQty: 8 }, { id: 'reinforced_steel', minQty: 2, maxQty: 5 },
+  ]},
+];
+
+export const MERCHANT_NAMES = [
+  '떠돌이 상인', '동방의 무역상', '대륙 상단 대표', '해적 밀매상',
+  '광산 거래인', '마법 물품상', '군수물자 조달관', '지하시장 상인',
+  '왕립 조달관', '별의 무역상',
+];
+
+// ---- 시장 기준 가격 ----
 export const MARKET_BASE_PRICES = {
   wood: 2, stone: 2, herb: 3, fiber: 1, raw_meat: 4,
   hardwood: 5, mushroom: 4, beast_hide: 6, enchanted_sap: 15,
@@ -709,6 +780,7 @@ export const MARKET_BASE_PRICES = {
   steel: 35, gold_ingot: 90, enchanted_wood: 30, enchanted_crystal: 50,
   mithril_ingot: 80, reinforced_steel: 120, void_alloy: 250,
   cooked_meat: 8, herb_potion: 15, fire_potion: 40, ice_potion: 40,
+  mineral_residue: 1, metal_dust: 2, empty_bottle: 1, food_scraps: 1, repair_kit: 15,
 };
 
 // ---- 레벨 경험치 테이블 ----

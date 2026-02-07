@@ -2,7 +2,7 @@
 // systems/market.js - 독립 시장 시스템
 // GameEngine과 콜백으로만 통신, 내부 상태 자체 관리
 // ============================================================
-import { RESOURCES, MARKET_BASE_PRICES } from '../data.js';
+import { RESOURCES, MARKET_BASE_PRICES, MERCHANT_QUEST_POOL, MERCHANT_NAMES } from '../data.js';
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -29,6 +29,11 @@ export class MarketSystem {
     this.dailyPurchases = {}; // { itemId: count }
     this.lastResetDate = this.getTodayDate();
     this.investments = []; // [{ id, itemId, amount, predictedTrend, startPrice, startTime, duration }]
+
+    // 상인 의뢰
+    this.merchantQuests = [];
+    this.lastQuestRefresh = 0;
+    this.questsCompleted = 0;
   }
 
   // ---- 이벤트 ----
@@ -47,6 +52,10 @@ export class MarketSystem {
         this.prices[id] = base;
         this.trends[id] = 0; // -1, 0, 1
       }
+    }
+    // 상인 의뢰 초기 생성
+    if (this.merchantQuests.length === 0) {
+      this.generateMerchantQuests();
     }
   }
 
@@ -308,6 +317,104 @@ export class MarketSystem {
     }));
   }
 
+  // ---- 상인 의뢰 ----
+  generateMerchantQuests() {
+    const maxTier = this.cb.getMaxResourceTier ? this.cb.getMaxResourceTier() : 2;
+    const eligiblePools = MERCHANT_QUEST_POOL.filter(p => p.tier <= maxTier);
+    if (eligiblePools.length === 0) return;
+
+    this.merchantQuests = [];
+    const usedNames = [];
+    const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+    for (let i = 0; i < 3; i++) {
+      const pool = eligiblePools[Math.floor(Math.random() * eligiblePools.length)];
+      const itemDef = pool.items[Math.floor(Math.random() * pool.items.length)];
+      const quantity = rand(itemDef.minQty, itemDef.maxQty);
+
+      const marketPrice = this.prices[itemDef.id] || MARKET_BASE_PRICES[itemDef.id] || 10;
+      const rewardGold = Math.floor(marketPrice * quantity * 2);
+
+      // 상인 이름 (중복 방지)
+      const availNames = MERCHANT_NAMES.filter(n => !usedNames.includes(n));
+      const merchantName = availNames.length > 0
+        ? availNames[Math.floor(Math.random() * availNames.length)]
+        : MERCHANT_NAMES[Math.floor(Math.random() * MERCHANT_NAMES.length)];
+      usedNames.push(merchantName);
+
+      this.merchantQuests.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7) + i,
+        itemId: itemDef.id,
+        quantity,
+        rewardGold,
+        startTime: Date.now(),
+        deadline: 24 * 60 * 60 * 1000, // 24시간
+        tier: pool.tier,
+        merchantName,
+      });
+    }
+
+    this.lastQuestRefresh = Date.now();
+    this.emit('toast', { msg: '📦 새로운 상인 의뢰가 도착했습니다!', type: 'info' });
+  }
+
+  checkMerchantQuests() {
+    const now = Date.now();
+
+    // 만료된 의뢰 제거
+    const expired = this.merchantQuests.filter(q => now - q.startTime >= q.deadline);
+    for (const q of expired) {
+      const itemName = this.cb.getItemName(q.itemId);
+      this.emit('toast', { msg: `⏰ 상인 의뢰 만료: ${itemName} x${q.quantity}`, type: 'warning' });
+    }
+    if (expired.length > 0) {
+      this.merchantQuests = this.merchantQuests.filter(q => now - q.startTime < q.deadline);
+    }
+
+    // 의뢰 0개이거나 12시간 경과 시 갱신
+    const refreshInterval = 12 * 60 * 60 * 1000;
+    if (this.merchantQuests.length === 0 || now - this.lastQuestRefresh >= refreshInterval) {
+      this.generateMerchantQuests();
+    }
+  }
+
+  completeMerchantQuest(questId) {
+    const quest = this.merchantQuests.find(q => q.id === questId);
+    if (!quest) {
+      this.emit('toast', { msg: '의뢰를 찾을 수 없습니다.', type: 'error' });
+      return { success: false };
+    }
+
+    if (!this.cb.hasItem(quest.itemId, quest.quantity)) {
+      this.emit('toast', { msg: '필요한 아이템이 부족합니다!', type: 'error' });
+      return { success: false };
+    }
+
+    this.cb.removeItem(quest.itemId, quest.quantity);
+    this.cb.addGold(quest.rewardGold);
+    this.merchantQuests = this.merchantQuests.filter(q => q.id !== questId);
+    this.questsCompleted++;
+
+    const itemName = this.cb.getItemName(quest.itemId);
+    this.emit('toast', {
+      msg: `📦 의뢰 완료! ${itemName} x${quest.quantity} 납품 → +${quest.rewardGold.toLocaleString()}G`,
+      type: 'success'
+    });
+    this.cb.onStateChanged();
+    return { success: true, goldEarned: quest.rewardGold };
+  }
+
+  getMerchantQuests() {
+    return this.merchantQuests.map(q => ({
+      ...q,
+      itemName: this.cb.getItemName(q.itemId),
+      itemIcon: this.cb.getItemIcon ? this.cb.getItemIcon(q.itemId) : '',
+      remaining: Math.max(0, q.deadline - (Date.now() - q.startTime)),
+      canComplete: this.cb.hasItem(q.itemId, q.quantity),
+      owned: this.cb.getItemCount ? this.cb.getItemCount(q.itemId) : 0,
+    }));
+  }
+
   // ---- 상태 저장/복원 ----
   getState() {
     return {
@@ -316,6 +423,9 @@ export class MarketSystem {
       dailyPurchases: this.dailyPurchases,
       lastResetDate: this.lastResetDate,
       investments: this.investments,
+      merchantQuests: this.merchantQuests,
+      lastQuestRefresh: this.lastQuestRefresh,
+      questsCompleted: this.questsCompleted,
     };
   }
 
@@ -325,5 +435,8 @@ export class MarketSystem {
     if (state.dailyPurchases) this.dailyPurchases = state.dailyPurchases;
     if (state.lastResetDate) this.lastResetDate = state.lastResetDate;
     if (state.investments) this.investments = state.investments;
+    if (state.merchantQuests) this.merchantQuests = state.merchantQuests;
+    if (state.lastQuestRefresh) this.lastQuestRefresh = state.lastQuestRefresh;
+    if (state.questsCompleted !== undefined) this.questsCompleted = state.questsCompleted;
   }
 }

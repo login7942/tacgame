@@ -73,6 +73,8 @@ body {
   overflow-x: auto;
   flex-shrink: 0;
   scrollbar-width: none;
+  cursor: grab;
+  user-select: none;
 }
 #tab-nav::-webkit-scrollbar { display: none; }
 .tab-btn {
@@ -954,6 +956,76 @@ body {
   color: #aab;
   min-width: 60px;
   text-align: right;
+}
+
+/* ===== 일꾼 유지비 바 ===== */
+.worker-maintenance {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+.worker-maint-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.worker-maint-row + .worker-maint-row { margin-top: 3px; }
+.mini-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.mini-fill {
+  height: 100%;
+  background: #2ecc71;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.mini-fill.warning { background: #e74c3c; }
+.mini-label {
+  font-size: 10px;
+  color: #889;
+  min-width: 50px;
+  text-align: right;
+}
+.maint-detail-row {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+}
+
+/* ===== 상인 의뢰 카드 ===== */
+.merchant-quest {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 10px 0;
+}
+.merchant-quest:last-child { border-bottom: none; }
+.merchant-quest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.merchant-name {
+  font-size: 11px;
+  color: #ff9800;
+}
+.merchant-reward {
+  color: #f9d71c;
+  font-weight: 600;
+  font-size: 13px;
+}
+.merchant-timer {
+  font-size: 11px;
+  color: #889;
+}
+.merchant-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 /* ===== Responsive ===== */

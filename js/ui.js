@@ -41,6 +41,30 @@ export class GameUI {
         this.renderCurrentTab();
       });
     });
+
+    // 마우스 드래그 스크롤
+    const nav = document.getElementById('tab-nav');
+    let isDown = false, startX, scrollLeft, hasDragged = false;
+    nav.addEventListener('mousedown', (e) => {
+      isDown = true; hasDragged = false;
+      startX = e.pageX - nav.offsetLeft;
+      scrollLeft = nav.scrollLeft;
+      nav.style.cursor = 'grabbing';
+    });
+    nav.addEventListener('mouseleave', () => { isDown = false; nav.style.cursor = ''; });
+    nav.addEventListener('mouseup', () => { isDown = false; nav.style.cursor = ''; });
+    nav.addEventListener('mousemove', (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - nav.offsetLeft;
+      const walk = (x - startX) * 1.5;
+      if (Math.abs(walk) > 3) hasDragged = true;
+      nav.scrollLeft = scrollLeft - walk;
+    });
+    // 드래그 중 클릭 방지
+    nav.addEventListener('click', (e) => {
+      if (hasDragged) { e.stopPropagation(); hasDragged = false; }
+    }, true);
   }
 
   renderCurrentTab() {
@@ -590,6 +614,19 @@ export class GameUI {
               📍 ${zoneName} ${w.deployedZone ? `| 효율: x${eff}` : ''}
               ${w.gatherCount > 0 ? `| 수집: ${w.gatherCount}` : ''}
             </div>
+            ${w.deployedZone ? `
+            <div class="worker-maintenance">
+              <div class="worker-maint-row">
+                <span>🍖</span>
+                <div class="mini-bar"><div class="mini-fill${(w.hunger || 0) < 30 ? ' warning' : ''}" style="width:${w.hunger || 0}%"></div></div>
+                <span class="mini-label">${Math.floor(w.hunger || 0)}%</span>
+              </div>
+              <div class="worker-maint-row">
+                <span>🔧</span>
+                <div class="mini-bar"><div class="mini-fill${(w.toolDurability || 0) < 50 ? ' warning' : ''}" style="width:${((w.toolDurability || 0) / (w.maxToolDurability || 500)) * 100}%"></div></div>
+                <span class="mini-label">${w.toolDurability || 0}/${w.maxToolDurability || 500}</span>
+              </div>
+            </div>` : ''}
           </div>`;
       }).join('');
 
@@ -729,6 +766,32 @@ export class GameUI {
         </div>
       </div>
 
+      <div class="modal-section">
+        <div class="modal-section-title">유지비</div>
+        <div class="worker-maint-detail">
+          <div class="maint-detail-row">
+            <span>🍖 배고픔</span>
+            <div class="mini-bar" style="flex:1;margin:0 8px;height:8px;">
+              <div class="mini-fill${(w.hunger || 0) < 30 ? ' warning' : ''}" style="width:${w.hunger || 0}%;height:100%;"></div>
+            </div>
+            <span style="font-size:11px;min-width:40px;text-align:right;">${Math.floor(w.hunger || 0)}%</span>
+            <button class="btn btn-primary btn-small" id="modal-feed" style="margin-left:8px;font-size:10px;padding:2px 6px;">급식</button>
+          </div>
+          <div class="maint-detail-row" style="margin-top:6px;">
+            <span>🔧 내구도</span>
+            <div class="mini-bar" style="flex:1;margin:0 8px;height:8px;">
+              <div class="mini-fill${(w.toolDurability || 0) < 50 ? ' warning' : ''}" style="width:${((w.toolDurability || 0) / (w.maxToolDurability || 500)) * 100}%;height:100%;"></div>
+            </div>
+            <span style="font-size:11px;min-width:60px;text-align:right;">${w.toolDurability || 0}/${w.maxToolDurability || 500}</span>
+            <button class="btn btn-primary btn-small" id="modal-repair" style="margin-left:8px;font-size:10px;padding:2px 6px;">수리</button>
+          </div>
+          <div style="margin-top:8px;font-size:10px;color:#889;">
+            <label><input type="checkbox" id="modal-autofeed" ${s.workerMaintenance?.autoFeed !== false ? 'checked' : ''}> 자동 급식</label>
+            <label style="margin-left:12px;"><input type="checkbox" id="modal-autorepair" ${s.workerMaintenance?.autoRepair !== false ? 'checked' : ''}> 자동 수리</label>
+          </div>
+        </div>
+      </div>
+
       ${availableEquip.length > 0 ? `
       <div class="modal-section">
         <div class="modal-section-title">장비 장착</div>
@@ -768,6 +831,35 @@ export class GameUI {
         this.engine.equipWorker(workerId, btn.dataset.eq);
         this.showWorkerDetail(workerId); // 새로고침
       });
+    });
+    // 유지비 버튼
+    document.getElementById('modal-feed')?.addEventListener('click', () => {
+      const worker = s.workers.find(x => x.id === workerId);
+      if (worker) {
+        if (this.engine.feedWorker(worker)) {
+          this.engine.emit('toast', { msg: `${worker.name}에게 급식 완료!`, type: 'success' });
+        } else {
+          this.engine.emit('toast', { msg: '음식이 없습니다!', type: 'error' });
+        }
+        this.showWorkerDetail(workerId);
+      }
+    });
+    document.getElementById('modal-repair')?.addEventListener('click', () => {
+      const worker = s.workers.find(x => x.id === workerId);
+      if (worker) {
+        if (this.engine.repairWorkerTool(worker)) {
+          this.engine.emit('toast', { msg: `${worker.name}의 도구 수리 완료!`, type: 'success' });
+        } else {
+          this.engine.emit('toast', { msg: '수리 도구가 없습니다!', type: 'error' });
+        }
+        this.showWorkerDetail(workerId);
+      }
+    });
+    document.getElementById('modal-autofeed')?.addEventListener('change', (e) => {
+      this.engine.getState().workerMaintenance.autoFeed = e.target.checked;
+    });
+    document.getElementById('modal-autorepair')?.addEventListener('change', (e) => {
+      this.engine.getState().workerMaintenance.autoRepair = e.target.checked;
     });
   }
 
@@ -1600,6 +1692,46 @@ export class GameUI {
         </div>`;
     }
 
+    // 상인 의뢰
+    const quests = this.engine.getMerchantQuests();
+    let questHTML = '';
+    if (quests.length > 0) {
+      questHTML = `
+        <div style="background:rgba(255,152,0,0.1);padding:12px;border-radius:8px;margin-bottom:16px;">
+          <div style="font-weight:600;font-size:14px;margin-bottom:8px;">📦 상인 의뢰</div>
+          ${quests.map(q => {
+            const remainSec = Math.floor(q.remaining / 1000);
+            const hours = Math.floor(remainSec / 3600);
+            const mins = Math.floor((remainSec % 3600) / 60);
+            const timeText = `${hours}h ${mins}m`;
+            const progressPct = Math.min(100, Math.floor((q.owned / q.quantity) * 100));
+            return `
+              <div class="merchant-quest">
+                <div class="merchant-quest-header">
+                  <div>
+                    <div class="merchant-name">${q.merchantName}</div>
+                    <div style="font-weight:600;font-size:13px;">${q.itemIcon} ${q.itemName} x${q.quantity}
+                      <span class="text-muted" style="font-size:11px;">(보유: ${q.owned})</span>
+                    </div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div class="merchant-reward">💰 ${q.rewardGold.toLocaleString()}G</div>
+                    <div class="merchant-timer">⏰ ${timeText}</div>
+                  </div>
+                </div>
+                <div class="merchant-progress">
+                  <div class="mini-bar" style="height:6px;">
+                    <div class="mini-fill" style="width:${progressPct}%;background:${q.canComplete ? '#2ecc71' : '#ff9800'};"></div>
+                  </div>
+                  <button class="btn btn-success btn-small merchant-complete-btn"
+                    data-quest="${q.id}" ${!q.canComplete ? 'disabled' : ''}
+                    style="min-width:50px;font-size:11px;">납품</button>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>`;
+    }
+
     // 시장에서 거래 가능한 아이템 (해금된 자원만)
     const tradeable = Object.entries(s.market.prices || {})
       .filter(([id]) => {
@@ -1619,11 +1751,12 @@ export class GameUI {
       });
 
     if (tradeable.length === 0) {
-      listEl.innerHTML = investmentHTML + '<div class="text-muted text-center" style="padding:20px;">거래 가능한 아이템이 없습니다.</div>';
+      listEl.innerHTML = investmentHTML + questHTML + '<div class="text-muted text-center" style="padding:20px;">거래 가능한 아이템이 없습니다.</div>';
+      this.bindMerchantQuestButtons(listEl);
       return;
     }
 
-    listEl.innerHTML = investmentHTML + tradeable.map(([id, price]) => {
+    listEl.innerHTML = investmentHTML + questHTML + tradeable.map(([id, price]) => {
       const basePrice = MARKET_BASE_PRICES[id] || price;
       const trend = s.market.trends ? (s.market.trends[id] || 0) : 0;
       const trendIcon = trend > 0 ? '📈' : trend < 0 ? '📉' : '➡️';
@@ -1679,6 +1812,15 @@ export class GameUI {
       btn.addEventListener('click', () => {
         const id = btn.dataset.id;
         this.showInvestModal(id);
+      });
+    });
+    this.bindMerchantQuestButtons(listEl);
+  }
+
+  bindMerchantQuestButtons(container) {
+    container.querySelectorAll('.merchant-complete-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.engine.completeMerchantQuest(btn.dataset.quest);
       });
     });
   }
