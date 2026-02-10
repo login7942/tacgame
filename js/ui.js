@@ -5,7 +5,8 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          WORKER_TYPES, HIRE_COSTS, ENV_NAMES, MARKET_BASE_PRICES,
          EXP_TABLE,
          MERCENARY_TYPES, MERCENARY_HIRE_COSTS, MERCENARY_NAMES,
-         MERC_STAMINA_FOOD, EXPEDITION_CONFIG } from './data.js';
+         MERC_STAMINA_FOOD, EXPEDITION_CONFIG,
+         SHRINE_CONFIG, BUFF_DEFINITIONS } from './data.js';
 
 export class GameUI {
   constructor(engine) {
@@ -80,6 +81,7 @@ export class GameUI {
       case 'vehicles': this.renderVehicles(); break;
       case 'codex': this.renderCodex(); break;
       case 'missions': this.renderMissions(); break;
+      case 'shrine': this.renderShrine(); break;
       case 'market': this.renderMarket(); break;
     }
     this.updateTopBar();
@@ -103,6 +105,19 @@ export class GameUI {
     document.getElementById('gold-display').textContent = `💰 ${p.gold.toLocaleString()}`;
     document.getElementById('level-display').textContent = `Lv.${p.level}`;
     document.getElementById('legacy-display').textContent = `⭐ ${p.legacyPoints}`;
+    // 활성 버프 표시
+    const buffEl = document.getElementById('buff-display');
+    if (buffEl && s.activeBuffs && s.activeBuffs.length > 0) {
+      buffEl.innerHTML = s.activeBuffs.map(b => {
+        const min = Math.floor(b.ticksRemaining / 60);
+        const sec = b.ticksRemaining % 60;
+        return `<span class="buff-badge" title="${b.name}: ${b.stat} +${b.value}%">${b.icon} ${min}:${sec.toString().padStart(2,'0')}</span>`;
+      }).join('');
+      buffEl.style.display = '';
+    } else if (buffEl) {
+      buffEl.innerHTML = '';
+      buffEl.style.display = 'none';
+    }
   }
 
   // ---- 지역 탭 ----
@@ -335,6 +350,7 @@ export class GameUI {
         <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
           <button class="btn ${isEquipped ? 'btn-warning' : 'btn-primary'}" id="modal-equip">${isEquipped ? '해제' : '장착'}</button>
           ${enhanceInfo.canEnhance ? `<button class="btn btn-success" id="modal-enhance">💎 강화 (+${enhanceLevel} → +${enhanceLevel+1})</button>` : ''}
+          ${!isEquipped ? `<button class="btn btn-small" id="modal-shrine" style="background:#7c3aed;color:#fff;">🏛️ 봉헌</button>` : ''}
           <button class="btn btn-danger btn-small" id="modal-vault">계승 보관</button>
         </div>`;
     } else {
@@ -342,13 +358,20 @@ export class GameUI {
       if (!res) return;
       const count = s.inventory[itemId] || 0;
       const isFood = ['cooked_meat','raw_meat','fish','herb_potion','mushroom','herb','cactus','fire_potion','ice_potion'].includes(itemId);
+      const isBuff = !!BUFF_DEFINITIONS[itemId];
+      const buffDef = BUFF_DEFINITIONS[itemId];
       html = `
         <div class="modal-title">${res.icon} ${res.name}</div>
         <div class="modal-stat-row"><span class="modal-stat-label">보유량</span><span class="modal-stat-value">${count}</span></div>
         <div class="modal-stat-row"><span class="modal-stat-label">등급</span><span class="modal-stat-value">Tier ${res.tier}</span></div>
         <div class="modal-stat-row"><span class="modal-stat-label">분류</span><span class="modal-stat-value">${res.category}</span></div>
+        ${isBuff ? `
+        <div class="modal-section" style="background:rgba(76,175,80,0.1);padding:8px;border-radius:4px;margin:8px 0;">
+          <div style="color:#4caf50;font-weight:600;font-size:12px;">${buffDef.icon} ${SHRINE_CONFIG.statNames[buffDef.stat] || buffDef.stat} +${buffDef.value}% (${Math.floor(buffDef.duration / 60)}분)</div>
+        </div>` : ''}
         <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
           ${isFood ? `<button class="btn btn-success" id="modal-use-food">사용하기</button>` : ''}
+          ${isBuff ? `<button class="btn btn-success" id="modal-use-buff">${buffDef.icon} 사용하기</button>` : ''}
           <button class="btn btn-danger btn-small" id="modal-vault">계승 보관</button>
         </div>`;
     }
@@ -365,6 +388,13 @@ export class GameUI {
     document.getElementById('modal-use-food')?.addEventListener('click', () => {
       this.engine.useFood(itemId);
       this.closeModal();
+    });
+    document.getElementById('modal-use-buff')?.addEventListener('click', () => {
+      this.engine.useBuff(itemId);
+      this.closeModal();
+    });
+    document.getElementById('modal-shrine')?.addEventListener('click', () => {
+      this.showShrineOfferModal(itemId);
     });
     document.getElementById('modal-vault')?.addEventListener('click', () => {
       this.engine.addToVault(itemId, 1);
@@ -490,6 +520,12 @@ export class GameUI {
       const maxCraftable = this.engine.getMaxCraftableAmount(recipe.id);
       const resultIcon = this.engine.getItemIcon(recipe.result);
       const ingredients = recipe.ingredients.map(ing => {
+        if (ing.type === 'equipment') {
+          const eqDef = EQUIPMENT[ing.id];
+          const avail = this.engine.findAvailableEquipmentForCraft ? this.engine.findAvailableEquipmentForCraft(ing.id, ing.amount) : null;
+          const has = avail !== null;
+          return `<span class="recipe-ingredient ${has ? 'has' : 'missing'}">${eqDef?.icon||'?'} ${eqDef?.name||ing.id} <span class="eq-tag">장비</span> ${has?'1':'0'}/${ing.amount}</span>`;
+        }
         const has = this.engine.hasItem(ing.id, ing.amount);
         const current = this.engine.getItemCount(ing.id);
         return `<span class="recipe-ingredient ${has ? 'has' : 'missing'}">${this.engine.getItemIcon(ing.id)} ${this.engine.getItemName(ing.id)} ${current}/${ing.amount}</span>`;
@@ -525,6 +561,16 @@ export class GameUI {
     const resultIcon = this.engine.getItemIcon(recipe.result);
 
     const ingredients = recipe.ingredients.map(ing => {
+      if (ing.type === 'equipment') {
+        const eqDef = EQUIPMENT[ing.id];
+        const avail = this.engine.findAvailableEquipmentForCraft ? this.engine.findAvailableEquipmentForCraft(ing.id, ing.amount) : null;
+        const has = avail !== null;
+        return `
+          <div class="modal-stat-row">
+            <span class="modal-stat-label">${eqDef?.icon||'?'} ${eqDef?.name||ing.id} <span class="eq-tag">장비</span></span>
+            <span class="modal-stat-value ${has ? 'text-green' : 'text-red'}">${has?'1':'0'} / ${ing.amount}</span>
+          </div>`;
+      }
       const has = this.engine.hasItem(ing.id, ing.amount);
       const current = this.engine.getItemCount(ing.id);
       const perCraft = ing.amount;
@@ -743,6 +789,7 @@ export class GameUI {
             return `<div class="equip-slot ${eq ? 'filled' : ''}" data-slot="${slot}">
               <span class="slot-icon">${eq ? eq.icon : '➕'}</span>
               <span class="slot-label">${displayName}</span>
+              ${eqInstance ? this.renderDurabilityBar(eqInstance) : ''}
             </div>`;
           }).join('')}
         </div>
@@ -863,6 +910,14 @@ export class GameUI {
     });
     document.getElementById('modal-autorepair')?.addEventListener('change', (e) => {
       this.engine.getState().workerMaintenance.autoRepair = e.target.checked;
+    });
+    // 장비 인스턴스 수리 버튼
+    document.querySelectorAll('.repair-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.engine.repairEquipment(btn.dataset.eq);
+        this.showWorkerDetail(workerId);
+      });
     });
   }
 
@@ -2139,6 +2194,7 @@ export class GameUI {
         <div>⚔️ 무기: ${weaponInfo}
           ${merc.equipment.weapon ? `<button class="btn btn-sm" data-merc-unequip="weapon">해제</button>` : ''}
         </div>
+        ${(() => { const wEq = merc.equipment.weapon ? this.engine.getEquipmentByUid(merc.equipment.weapon) : null; return wEq ? this.renderDurabilityBar(wEq) : ''; })()}
         ${availWeapons.length > 0 ? `<select data-merc-equip-slot="weapon" class="merc-equip-select">
           <option value="">-- 무기 장착 --</option>
           ${availWeapons.map(eq => `<option value="${eq.uid}">${eq.name} (+${EQUIPMENT[eq.baseId]?.stats?.attack || 0})</option>`).join('')}
@@ -2148,6 +2204,7 @@ export class GameUI {
         <div>🛡️ 방어구: ${armorInfo}
           ${merc.equipment.armor ? `<button class="btn btn-sm" data-merc-unequip="armor">해제</button>` : ''}
         </div>
+        ${(() => { const aEq = merc.equipment.armor ? this.engine.getEquipmentByUid(merc.equipment.armor) : null; return aEq ? this.renderDurabilityBar(aEq) : ''; })()}
         ${availArmors.length > 0 ? `<select data-merc-equip-slot="armor" class="merc-equip-select">
           <option value="">-- 방어구 장착 --</option>
           ${availArmors.map(eq => `<option value="${eq.uid}">${eq.name} (+${EQUIPMENT[eq.baseId]?.stats?.defense || 0})</option>`).join('')}
@@ -2223,6 +2280,151 @@ export class GameUI {
         this.closeModal();
       });
     });
+    // 장비 인스턴스 수리 버튼
+    document.querySelectorAll('.repair-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.engine.repairEquipment(btn.dataset.eq);
+        this.showMercenaryDetail(mercId);
+      });
+    });
+  }
+
+  // ---- 봉헌 탭 ----
+  renderShrine() {
+    const s = this.engine.getState();
+    if (!s) return;
+    const snapshot = this.engine.getShrineSnapshot();
+    if (!snapshot) return;
+
+    // 봉헌 현황
+    const statsEl = document.getElementById('shrine-stats');
+    const nextMs = snapshot.nextMilestone;
+    statsEl.innerHTML = `
+      <div class="shrine-overview">
+        <div class="shrine-icon">🏛️</div>
+        <div class="shrine-info">
+          <div>총 봉헌: <strong>${snapshot.totalOfferings}회</strong></div>
+          <div>총 포인트: <strong style="color:#a78bfa;">${snapshot.totalPoints}</strong></div>
+        </div>
+      </div>
+      <div class="shrine-stats-grid">
+        ${Object.entries(snapshot.statPoints).map(([stat, value]) => `
+          <div class="shrine-stat-card">
+            <span class="shrine-stat-name">${SHRINE_CONFIG.statNames[stat]}</span>
+            <span class="shrine-stat-value">+${value}</span>
+          </div>
+        `).join('')}
+      </div>
+      ${nextMs ? `
+      <div class="shrine-next-milestone">
+        다음 마일스톤: ${nextMs.count}회 봉헌 (현재: ${snapshot.totalOfferings}회) — ${nextMs.desc}
+        <div class="mini-bar" style="height:6px;margin-top:4px;">
+          <div class="mini-fill" style="width:${Math.min(100, (snapshot.totalOfferings / nextMs.count) * 100)}%;background:#a78bfa;"></div>
+        </div>
+      </div>` : '<div style="color:#a78bfa;font-size:12px;margin-top:8px;">모든 마일스톤 달성!</div>'}
+    `;
+
+    // 마일스톤 목록
+    const msEl = document.getElementById('shrine-milestones');
+    msEl.innerHTML = `<div style="margin:8px 0;">
+      ${Object.entries(SHRINE_CONFIG.milestones).map(([count, ms]) => {
+        const done = snapshot.milestones[count];
+        return `<div class="milestone-row ${done ? 'done' : ''}">
+          <span>${done ? '✅' : '◻'} ${ms.name}</span>
+          <span class="text-muted">${ms.desc}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+    // 봉헌 가능한 장비 (미장착)
+    const listEl = document.getElementById('shrine-equipment-list');
+    const available = s.equipment.filter(eq => {
+      const uid = eq.uid;
+      if (Object.values(s.equippedGear).includes(uid)) return false;
+      for (const w of s.workers) {
+        if (Object.values(w.equipment).includes(uid)) return false;
+      }
+      for (const m of s.mercenaries) {
+        if (Object.values(m.equipment).includes(uid)) return false;
+      }
+      return true;
+    });
+
+    if (available.length === 0) {
+      listEl.innerHTML = '<div class="text-center text-muted" style="padding:20px;">봉헌 가능한 장비가 없습니다. 장비를 제작하세요!</div>';
+    } else {
+      listEl.innerHTML = available.map(eq => {
+        const base = EQUIPMENT[eq.baseId];
+        if (!base) return '';
+        const points = this.engine.shrine.calculateOfferingPoints(eq.uid);
+        const displayName = this.engine.enhancement.formatEquipmentName(eq);
+        return `<div class="item-slot tier-${base.tier} shrine-item" data-uid="${eq.uid}">
+          <span class="item-icon">${base.icon}</span>
+          <span class="item-name">${displayName}</span>
+          <span class="shrine-points">+${points}pt</span>
+        </div>`;
+      }).join('');
+
+      listEl.querySelectorAll('.shrine-item').forEach(el => {
+        el.addEventListener('click', () => this.showShrineOfferModal(el.dataset.uid));
+      });
+    }
+  }
+
+  showShrineOfferModal(equipmentUid) {
+    const eq = this.engine.getEquipmentByUid(equipmentUid);
+    if (!eq) return;
+    const base = EQUIPMENT[eq.baseId];
+    if (!base) return;
+    const points = this.engine.shrine.calculateOfferingPoints(equipmentUid);
+    const displayName = this.engine.enhancement.formatEquipmentName(eq);
+
+    const html = `
+      <div class="modal-title">🏛️ 봉헌</div>
+      <div style="text-align:center;margin:12px 0;">
+        <span style="font-size:32px;">${base.icon}</span>
+        <div style="font-weight:600;margin-top:4px;">${displayName}</div>
+        <div style="color:#a78bfa;font-size:18px;margin-top:8px;font-weight:700;">+${points} 포인트</div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">스탯 배분 선택</div>
+        ${SHRINE_CONFIG.stats.map(stat => `
+          <button class="btn shrine-stat-btn" data-stat="${stat}" style="width:100%;margin-bottom:6px;background:#2a1f5e;color:#c4b5fd;border:1px solid #5b21b6;">
+            ${SHRINE_CONFIG.statNames[stat]} +${points}
+          </button>
+        `).join('')}
+      </div>
+      <div style="font-size:11px;color:#ef4444;margin-top:8px;text-align:center;">
+        경고: 봉헌된 장비는 영구히 소멸합니다!
+      </div>
+    `;
+    this.showModal(html);
+
+    document.querySelectorAll('.shrine-stat-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.engine.offerToShrine(equipmentUid, btn.dataset.stat);
+        this.closeModal();
+      });
+    });
+  }
+
+  // ---- 내구도 바 헬퍼 ----
+  renderDurabilityBar(eq) {
+    if (!eq || eq.durability === undefined) return '';
+    const pct = eq.maxDurability > 0 ? (eq.durability / eq.maxDurability) * 100 : 0;
+    const isDanger = pct < 30;
+    const isBroken = eq.durability <= 0;
+    return `
+      <div class="durability-bar">
+        <div class="durability-fill ${isDanger ? 'danger' : ''}" style="width:${pct}%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span class="durability-text">${eq.durability}/${eq.maxDurability}</span>
+        ${isBroken ? '<span class="broken-badge">파손</span>' : ''}
+        ${eq.durability < eq.maxDurability ? `<button class="btn btn-small btn-warning repair-btn" data-eq="${eq.uid}" style="font-size:9px;padding:1px 6px;">🔧 수리</button>` : ''}
+      </div>
+    `;
   }
 
   statName(key) {
@@ -2231,6 +2433,7 @@ export class GameUI {
       hp: 'HP', crit: '크리티컬', mining: '채굴', logging: '벌목',
       fishing: '낚시', gathering: '채집', research: '연구',
       fireDmg: '화염 데미지', iceDmg: '냉기 데미지', lightningDmg: '번개 데미지',
+      magicDmg: '마법 데미지',
     };
     return names[key] || key;
   }

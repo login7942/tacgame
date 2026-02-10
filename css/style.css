@@ -124,7 +124,8 @@ body {
 }
 
 /* ===== Filter Bar ===== */
-.filter-bar {
+.filter-bar,
+.filter-buttons {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
@@ -1142,6 +1143,149 @@ body {
   gap: 8px;
 }
 .expedition-zone-option:last-child { border-bottom: none; }
+
+/* ===== Buff Bar (Top Bar) ===== */
+.buff-bar {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.buff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(46, 204, 113, 0.2);
+  border: 1px solid rgba(46, 204, 113, 0.4);
+  color: #2ecc71;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ===== Shrine System ===== */
+.shrine-overview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #1a1035, #151c2c);
+  border: 1px solid #5b21b6;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.shrine-icon {
+  font-size: 40px;
+}
+.shrine-info {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.shrine-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.shrine-stat-card {
+  background: #1a1035;
+  border: 1px solid #3b1f7e;
+  border-radius: 8px;
+  padding: 8px 4px;
+  text-align: center;
+}
+.shrine-stat-name {
+  display: block;
+  font-size: 10px;
+  color: #a78bfa;
+  margin-bottom: 2px;
+}
+.shrine-stat-value {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: #c4b5fd;
+}
+.shrine-next-milestone {
+  font-size: 11px;
+  color: #a78bfa;
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(167, 139, 250, 0.08);
+  border-radius: 6px;
+}
+.milestone-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid #1a2235;
+}
+.milestone-row.done {
+  color: #a78bfa;
+}
+.milestone-row:not(.done) {
+  color: #556;
+}
+.shrine-points {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #a78bfa;
+  margin-top: 2px;
+}
+.shrine-stat-btn:hover {
+  background: #3b1f7e !important;
+  border-color: #7c3aed !important;
+  color: #e0d5ff !important;
+}
+
+/* ===== Durability Bar (Worker/Merc Equipment) ===== */
+.durability-bar {
+  width: 100%;
+  height: 4px;
+  background: #1a2235;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.durability-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #2ecc71, #4cff91);
+  transition: width 0.3s;
+}
+.durability-fill.danger {
+  background: linear-gradient(90deg, #e74c3c, #ff6b6b);
+}
+.durability-text {
+  font-size: 9px;
+  color: #889;
+}
+.broken-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: #e74c3c;
+  padding: 1px 5px;
+  border-radius: 6px;
+}
+
+/* ===== Equipment Tag (Crafting Ingredient) ===== */
+.eq-tag {
+  display: inline-block;
+  background: #5b21b6;
+  color: #e0d5ff;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  vertical-align: middle;
+  margin-left: 2px;
+}
 
 /* ===== Responsive ===== */
 @media (min-width: 600px) {

@@ -31,6 +31,7 @@
         <span id="gold-display">💰 0</span>
         <span id="level-display">Lv.1</span>
         <span id="legacy-display">⭐ 0</span>
+        <div id="buff-display" class="buff-bar"></div>
       </div>
     </header>
 
@@ -45,6 +46,7 @@
       <button class="tab-btn" data-tab="vehicles">🚀 탈것</button>
       <button class="tab-btn" data-tab="codex">📖 도감</button>
       <button class="tab-btn" data-tab="missions">📜 미션</button>
+      <button class="tab-btn" data-tab="shrine">🏛️ 봉헌</button>
       <button class="tab-btn" data-tab="market">🏪 시장</button>
     </nav>
 
@@ -84,6 +86,7 @@
             <button class="filter-btn" data-filter="tool">도구</button>
             <button class="filter-btn" data-filter="vehicle">탈것</button>
             <button class="filter-btn" data-filter="food">음식</button>
+            <button class="filter-btn" data-filter="buff">버프</button>
           </div>
         </div>
         <div id="recipe-list" class="recipe-grid"></div>
@@ -172,6 +175,17 @@
           <button class="filter-btn" data-filter="achievements">업적</button>
         </div>
         <div id="missions-list" class="scroll-container"></div>
+      </div>
+
+      <!-- Shrine Tab -->
+      <div class="tab-panel" id="panel-shrine">
+        <div class="panel-header">
+          <h2>봉헌의 제단</h2>
+        </div>
+        <div id="shrine-stats"></div>
+        <div id="shrine-milestones"></div>
+        <h3 style="color:#a78bfa;margin:12px 0 8px;">봉헌 가능한 장비</h3>
+        <div id="shrine-equipment-list" class="item-grid"></div>
       </div>
 
       <!-- Market Tab -->

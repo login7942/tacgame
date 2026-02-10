@@ -7,7 +7,8 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          EXP_TABLE, INHERITABLE_CATEGORIES, ENV_NAMES,
          BYPRODUCT_RULES, WORKER_FOOD_TABLE,
          MERCENARY_TYPES, MERCENARY_NAMES, MERCENARY_HIRE_COSTS,
-         MERC_STAMINA_FOOD, EXPEDITION_CONFIG } from './data.js';
+         MERC_STAMINA_FOOD, EXPEDITION_CONFIG,
+         SHRINE_CONFIG, BUFF_DEFINITIONS } from './data.js';
 import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
@@ -15,6 +16,7 @@ import { MarketSystem } from './systems/market.js';
 import { CodexSystem } from './systems/codex.js';
 import { MissionSystem } from './systems/missions.js';
 import { ExpeditionSystem } from './systems/expedition.js';
+import { ShrineSystem } from './systems/shrine.js';
 
 // ---- 유틸리티 ----
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -71,6 +73,12 @@ function createDefaultState() {
       expeditionHistory: [],
       staminaTickCounter: 0,
     },
+    shrine: {
+      totalOfferings: 0, totalPoints: 0,
+      statPoints: { attack: 0, defense: 0, hp: 0, speed: 0, luck: 0 },
+      milestones: {},
+    },
+    activeBuffs: [],
     tickCount: 0,
     lastSave: Date.now(),
   };
@@ -91,6 +99,7 @@ export class GameEngine {
     this.market = null; // MarketSystem 인스턴스
     this.codex = null; // CodexSystem 인스턴스
     this.missions = null; // MissionSystem 인스턴스
+    this.shrine = null; // ShrineSystem 인스턴스
   }
 
   // ---- 이벤트 시스템 ----
@@ -112,6 +121,7 @@ export class GameEngine {
     this.initCodexSystem();
     this.initMissionSystem();
     this.initExpeditionSystem();
+    this.initShrineSystem();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
   }
@@ -463,6 +473,21 @@ export class GameEngine {
     // ExpeditionSystem 이벤트 → GameEngine 이벤트 전달
     this.expedition.on('toast', (t) => this.emit('toast', t));
     this.expedition.on('expeditionComplete', (data) => {
+      // 용병 장비 내구도 감소
+      if (data.mercenaryId) {
+        const merc = this.state.mercenaries.find(m => m.id === data.mercenaryId);
+        if (merc) {
+          for (const slot of ['weapon', 'armor']) {
+            const eqUid = merc.equipment[slot];
+            if (eqUid) {
+              const eq = this.getEquipmentByUid(eqUid);
+              if (eq && eq.durability !== undefined) {
+                eq.durability = Math.max(0, eq.durability - 10);
+              }
+            }
+          }
+        }
+      }
       // 도감 등록
       if (this.codex && data.totalLoot) {
         for (const [resId] of Object.entries(data.totalLoot)) {
@@ -471,6 +496,49 @@ export class GameEngine {
       }
       this.emit('stateChanged', this.state);
     });
+  }
+
+  // ---- 봉헌 시스템 초기화 (콜백 브릿지) ----
+  initShrineSystem() {
+    this.shrine = new ShrineSystem({
+      getEquipmentInstance: (uid) => this.getEquipmentByUid(uid),
+      isEquipmentEquipped: (uid) => {
+        if (Object.values(this.state.equippedGear).includes(uid)) return true;
+        for (const w of this.state.workers) {
+          if (Object.values(w.equipment).includes(uid)) return true;
+        }
+        for (const m of this.state.mercenaries) {
+          if (Object.values(m.equipment).includes(uid)) return true;
+        }
+        return false;
+      },
+      removeEquipment: (uid) => {
+        this.state.equipment = this.state.equipment.filter(e => e.uid !== uid);
+      },
+      addPermanentBonus: (key, amount) => {
+        if (!this.state.permanentBonuses[key]) this.state.permanentBonuses[key] = 0;
+        this.state.permanentBonuses[key] += amount;
+      },
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+
+    if (this.state.shrine) {
+      this.shrine.setState(this.state.shrine);
+    }
+
+    this.shrine.on('toast', (t) => this.emit('toast', t));
+    this.shrine.on('milestoneUnlocked', () => {
+      this.recalcPlayerStats();
+      this.emit('stateChanged', this.state);
+    });
+  }
+
+  // ---- 봉헌 위임 ----
+  offerToShrine(equipmentUid, targetStat) {
+    return this.shrine ? this.shrine.offer(equipmentUid, targetStat) : { success: false };
+  }
+  getShrineSnapshot() {
+    return this.shrine ? this.shrine.getSnapshot() : null;
   }
 
   // ---- 용병 고용 ----
@@ -602,6 +670,75 @@ export class GameEngine {
     return this.expedition ? this.expedition.getSnapshot() : { activeExpeditions: [], history: [] };
   }
 
+  // ---- 버프 시스템 ----
+  useBuff(itemId) {
+    const buffDef = BUFF_DEFINITIONS[itemId];
+    if (!buffDef) return;
+    if (!this.hasItem(itemId, 1)) {
+      this.emit('toast', { msg: '아이템이 부족합니다!', type: 'error' });
+      return;
+    }
+    // 같은 종류 버프 중복 불가 (기존 갱신)
+    this.state.activeBuffs = this.state.activeBuffs.filter(b => b.id !== itemId);
+    this.removeItem(itemId, 1);
+    this.state.activeBuffs.push({
+      id: itemId,
+      name: buffDef.name,
+      stat: buffDef.stat,
+      value: buffDef.value,
+      ticksRemaining: buffDef.duration,
+      icon: buffDef.icon,
+      isPercent: buffDef.isPercent || false,
+    });
+    const min = Math.floor(buffDef.duration / 60);
+    this.emit('toast', { msg: `${buffDef.icon} ${buffDef.name} 활성화! (${min}분)`, type: 'success' });
+    this.recalcPlayerStats();
+    this.emit('stateChanged', this.state);
+  }
+
+  tickBuffs() {
+    if (!this.state.activeBuffs || this.state.activeBuffs.length === 0) return;
+    let expired = false;
+    for (const buff of this.state.activeBuffs) {
+      buff.ticksRemaining--;
+      if (buff.ticksRemaining <= 0) expired = true;
+    }
+    if (expired) {
+      const removed = this.state.activeBuffs.filter(b => b.ticksRemaining <= 0);
+      this.state.activeBuffs = this.state.activeBuffs.filter(b => b.ticksRemaining > 0);
+      for (const b of removed) {
+        this.emit('toast', { msg: `${b.icon} ${b.name} 효과가 종료되었습니다.`, type: 'info' });
+      }
+      this.recalcPlayerStats();
+    }
+  }
+
+  // ---- 장비 수리 (일꾼/용병 장비) ----
+  repairEquipment(equipmentUid) {
+    const eq = this.getEquipmentByUid(equipmentUid);
+    if (!eq) return;
+    if (eq.durability === undefined || eq.durability >= (eq.maxDurability || 0)) {
+      this.emit('toast', { msg: '수리가 필요 없습니다.', type: 'info' });
+      return;
+    }
+    const repairCost = Math.max(1, Math.floor((eq.maxDurability - eq.durability) * 0.5));
+    if (!this.hasItem('repair_kit', 1)) {
+      this.emit('toast', { msg: '수리 도구가 필요합니다!', type: 'error' });
+      return;
+    }
+    if (this.state.player.gold < repairCost) {
+      this.emit('toast', { msg: `골드가 부족합니다! (${repairCost}G 필요)`, type: 'error' });
+      return;
+    }
+    this.removeItem('repair_kit', 1);
+    this.state.player.gold -= repairCost;
+    eq.durability = eq.maxDurability;
+    const base = EQUIPMENT[eq.baseId];
+    const name = base ? base.name : eq.baseId;
+    this.emit('toast', { msg: `${name} 수리 완료! (-${repairCost}G, 수리 도구 -1)`, type: 'success' });
+    this.emit('stateChanged', this.state);
+  }
+
   // ---- 저장/불러오기 ----
   saveState() {
     this.state.lastSave = Date.now();
@@ -620,6 +757,10 @@ export class GameEngine {
     // ExpeditionSystem 상태 동기화
     if (this.expedition) {
       this.state.expedition = this.expedition.getState();
+    }
+    // ShrineSystem 상태 동기화
+    if (this.shrine) {
+      this.state.shrine = this.shrine.getState();
     }
     try {
       localStorage.setItem('tacgame_save', JSON.stringify(this.state));
@@ -705,6 +846,24 @@ export class GameEngine {
       // ===== Migration: 용병/원정 시스템 =====
       if (!state.mercenaries) state.mercenaries = [];
       if (!state.expedition) state.expedition = { activeExpeditions: [], expeditionHistory: [], staminaTickCounter: 0 };
+
+      // ===== Migration: 봉헌 시스템 =====
+      if (!state.shrine) state.shrine = {
+        totalOfferings: 0, totalPoints: 0,
+        statPoints: { attack: 0, defense: 0, hp: 0, speed: 0, luck: 0 },
+        milestones: {},
+      };
+      if (!state.activeBuffs) state.activeBuffs = [];
+
+      // ===== Migration: 장비 내구도 =====
+      for (const eq of (state.equipment || [])) {
+        if (eq.durability === undefined) {
+          const base = EQUIPMENT[eq.baseId];
+          const tier = base ? (base.tier || 1) : 1;
+          eq.maxDurability = tier * 100;
+          eq.durability = eq.maxDurability;
+        }
+      }
 
       return state;
     } catch { return null; }
@@ -800,6 +959,9 @@ export class GameEngine {
       this.expedition.update();
     }
 
+    // 버프 틱다운
+    this.tickBuffs();
+
     // 쿨다운
     if (this.gatherCooldown > 0) this.gatherCooldown--;
 
@@ -826,6 +988,13 @@ export class GameEngine {
     if (!eq) return {};
     const base = EQUIPMENT[eq.baseId];
     if (!base) return {};
+
+    // 내구도 0이면 스탯 0 (일꾼/용병 장비용)
+    if (eq.durability !== undefined && eq.durability <= 0) {
+      const zeroed = {};
+      for (const key of Object.keys(base.stats)) zeroed[key] = 0;
+      return zeroed;
+    }
 
     const enhanceLevel = eq.enhancement || 0;
     const bonus = this.enhancement.getEnhancementBonus(enhanceLevel);
@@ -863,6 +1032,39 @@ export class GameEngine {
     // 영구 보너스
     base.attack += s.permanentBonuses.combatPower;
     base.hp += s.permanentBonuses.maxHpBonus;
+
+    // 봉헌 스탯 보너스
+    if (this.shrine) {
+      const shrineStats = this.shrine.statPoints;
+      base.attack += shrineStats.attack || 0;
+      base.defense += shrineStats.defense || 0;
+      base.hp += shrineStats.hp || 0;
+      base.speed += shrineStats.speed || 0;
+      base.luck += shrineStats.luck || 0;
+    }
+
+    // 봉헌 마일스톤 퍼센트 보너스
+    if (s.shrine && s.shrine.milestones) {
+      if (s.shrine.milestones['30']) base.attack = Math.floor(base.attack * 1.10);
+      if (s.shrine.milestones['200']) {
+        base.attack = Math.floor(base.attack * 1.10);
+        base.defense = Math.floor(base.defense * 1.10);
+        base.hp = Math.floor(base.hp * 1.10);
+        base.speed = Math.floor(base.speed * 1.10);
+        base.luck = Math.floor(base.luck * 1.10);
+      }
+    }
+
+    // 활성 버프 적용
+    for (const buff of (s.activeBuffs || [])) {
+      if (buff.stat === 'gatherSpeed') continue; // 채집 속도는 별도 처리
+      if (buff.isPercent && base[buff.stat] !== undefined) {
+        base[buff.stat] = Math.floor(base[buff.stat] * (1 + buff.value / 100));
+      } else if (base[buff.stat] !== undefined) {
+        base[buff.stat] += buff.value;
+      }
+    }
+
     return base;
   }
 
@@ -954,7 +1156,13 @@ export class GameEngine {
     this.gatherCooldown = 1;
 
     const gathered = [];
-    const bonusSpeed = 1 + s.permanentBonuses.gatherSpeed * 0.01;
+    let bonusSpeed = 1 + s.permanentBonuses.gatherSpeed * 0.01;
+    // 채집 버프 적용
+    for (const buff of (s.activeBuffs || [])) {
+      if (buff.stat === 'gatherSpeed' && buff.isPercent) {
+        bonusSpeed *= (1 + buff.value / 100);
+      }
+    }
     for (const resId of zone.resources) {
       const rate = (zone.resourceRates[resId] || 0.5) * bonusSpeed;
       if (Math.random() < rate) {
@@ -1017,11 +1225,16 @@ export class GameEngine {
   // ---- 장비 ----
   addEquipment(baseId) {
     // 개별 인스턴스 생성
+    const base = EQUIPMENT[baseId];
+    const tier = base ? (base.tier || 1) : 1;
+    const maxDurability = tier * 100;
     const equipment = {
       uid: uid(),
       baseId: baseId,
       enhancement: 0,
-      name: EQUIPMENT[baseId] ? EQUIPMENT[baseId].name : baseId,
+      name: base ? base.name : baseId,
+      durability: maxDurability,
+      maxDurability: maxDurability,
     };
     this.state.equipment.push(equipment);
 
@@ -1080,11 +1293,38 @@ export class GameEngine {
     return null;
   }
 
+  // ---- 제작 재료용 장비 인스턴스 검색 (미장착 상태만) ----
+  findAvailableEquipmentForCraft(baseId, amount) {
+    const found = [];
+    for (const eq of this.state.equipment) {
+      if (eq.baseId !== baseId) continue;
+      const eqUid = eq.uid;
+      if (Object.values(this.state.equippedGear).includes(eqUid)) continue;
+      let equipped = false;
+      for (const w of this.state.workers) {
+        if (Object.values(w.equipment).includes(eqUid)) { equipped = true; break; }
+      }
+      if (equipped) continue;
+      for (const m of this.state.mercenaries) {
+        if (Object.values(m.equipment).includes(eqUid)) { equipped = true; break; }
+      }
+      if (equipped) continue;
+      found.push(eq);
+      if (found.length >= amount) return found;
+    }
+    return found.length >= amount ? found : null;
+  }
+
   // ---- 제작 ----
   canCraft(recipeId) {
     const recipe = RECIPES.find(r => r.id === recipeId);
     if (!recipe) return false;
-    return recipe.ingredients.every(ing => this.hasItem(ing.id, ing.amount));
+    return recipe.ingredients.every(ing => {
+      if (ing.type === 'equipment') {
+        return this.findAvailableEquipmentForCraft(ing.id, ing.amount) !== null;
+      }
+      return this.hasItem(ing.id, ing.amount);
+    });
   }
 
   // 최대 제작 가능 수량 계산
@@ -1094,9 +1334,15 @@ export class GameEngine {
 
     let maxAmount = Infinity;
     for (const ing of recipe.ingredients) {
-      const available = this.getItemCount(ing.id);
-      const possible = Math.floor(available / ing.amount);
-      maxAmount = Math.min(maxAmount, possible);
+      if (ing.type === 'equipment') {
+        const avail = this.findAvailableEquipmentForCraft(ing.id, ing.amount);
+        if (!avail) return 0;
+        maxAmount = 1; // 장비 재료가 있으면 최대 1개만
+      } else {
+        const available = this.getItemCount(ing.id);
+        const possible = Math.floor(available / ing.amount);
+        maxAmount = Math.min(maxAmount, possible);
+      }
     }
 
     return maxAmount === Infinity ? 0 : maxAmount;
@@ -1109,13 +1355,39 @@ export class GameEngine {
       this.emit('toast', { msg: '재료가 부족합니다.', type: 'error' });
       return;
     }
+
+    // 장비 재료에서 최고 강화 레벨 추적 (보너스용)
+    let maxEnhFromIngredients = 0;
+
     // 재료 소모
     for (const ing of recipe.ingredients) {
-      this.removeItem(ing.id, ing.amount);
+      if (ing.type === 'equipment') {
+        const eqInstances = this.findAvailableEquipmentForCraft(ing.id, ing.amount);
+        for (const eq of eqInstances) {
+          if ((eq.enhancement || 0) > maxEnhFromIngredients) {
+            maxEnhFromIngredients = eq.enhancement || 0;
+          }
+          this.state.equipment = this.state.equipment.filter(e => e.uid !== eq.uid);
+        }
+      } else {
+        this.removeItem(ing.id, ing.amount);
+      }
     }
+
     // 결과물
     if (recipe.type === 'equipment') {
-      this.addEquipment(recipe.result); // 개별 인스턴스 생성
+      const newUid = this.addEquipment(recipe.result);
+      // 재료 장비의 강화 레벨 절반 계승
+      if (maxEnhFromIngredients > 0) {
+        const bonusLevel = Math.floor(maxEnhFromIngredients / 2);
+        if (bonusLevel > 0) {
+          const eq = this.getEquipmentByUid(newUid);
+          if (eq) {
+            eq.enhancement = bonusLevel;
+            this.emit('toast', { msg: `재료 장비의 마력으로 +${bonusLevel} 강화 계승!`, type: 'success' });
+          }
+        }
+      }
       this.emit('toast', { msg: `${recipe.name} 제작 완료!`, type: 'success' });
     } else {
       this.addItem(recipe.result, recipe.amount);
@@ -1433,9 +1705,17 @@ export class GameEngine {
           this.addItem(resId, amount);
           worker.gatherCount++;
           s.stats.resourcesGathered += amount;
-          // 도구 내구도 감소
+          // 도구 내구도 감소 (일꾼 자체)
           if (worker.toolDurability !== undefined && worker.toolDurability > 0) {
             worker.toolDurability--;
+          }
+          // 장비 인스턴스 내구도 감소 (도구)
+          const toolUid = worker.equipment.tool;
+          if (toolUid) {
+            const toolEq = this.getEquipmentByUid(toolUid);
+            if (toolEq && toolEq.durability > 0) {
+              toolEq.durability--;
+            }
           }
         }
       }
@@ -1641,6 +1921,8 @@ export class GameEngine {
     const oldStats = { ...s.stats };
     const oldCodex = this.codex ? this.codex.getState() : null;
     const oldMissions = this.missions ? this.missions.getState() : null;
+    const oldShrine = this.shrine ? this.shrine.getState() : null;
+    const oldBuffs = [...(s.activeBuffs || [])];
 
     // 리셋
     const fresh = createDefaultState();
@@ -1691,6 +1973,9 @@ export class GameEngine {
     this.initMissionSystem();
     if (oldMissions) this.missions.setState(oldMissions);
     this.initExpeditionSystem();
+    this.initShrineSystem();
+    if (oldShrine) this.shrine.setState(oldShrine);
+    this.state.activeBuffs = oldBuffs;
     this.recalcPlayerStats();
     this.saveState();
     this.emit('toast', { msg: `부활! 레거시 포인트로 영구 보너스 강화!`, type: 'info' });

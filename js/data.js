@@ -128,6 +128,12 @@ export const RESOURCES = {
 
   // === 일꾼 소모품 ===
   repair_kit:       { name: '수리 도구',   tier: 1, category: 'craft',     icon: '🔧', crafted: true },
+
+  // === 버프 아이템 ===
+  warrior_elixir:   { name: '전사의 비약',    tier: 3, category: 'buff', icon: '⚔️', crafted: true },
+  guardian_elixir:  { name: '수호의 비약',    tier: 3, category: 'buff', icon: '🛡️', crafted: true },
+  lucky_elixir:     { name: '행운의 비약',    tier: 3, category: 'buff', icon: '🍀', crafted: true },
+  gather_booster:   { name: '채집 부스터',    tier: 4, category: 'buff', icon: '🌿', crafted: true },
 };
 
 // ---- 장비 정의 ----
@@ -213,6 +219,16 @@ export const EQUIPMENT = {
     stats: { luck: 15 }, resistances: { void: 40 }, desc: '공허 저항과 행운 증가' },
   eternity_ring:    { name: '영원의 반지',  type: 'accessory', slot: 'accessory', tier: 7, icon: '💫',
     stats: { attack: 30, defense: 30, luck: 30, speed: 20 }, resistances: { fire: 20, cold: 20, lightning: 20, void: 20, pressure: 20, radiation: 20 }, desc: '모든 것을 초월한 궁극의 장신구' },
+
+  // === 복합 제작 장비 ===
+  magic_sword:      { name: '마검',           type: 'weapon', slot: 'weapon', tier: 3, icon: '🗡️',
+    stats: { attack: 35, magicDmg: 15 }, resistances: {}, desc: '마력이 깃든 검' },
+  ice_flame_sword:  { name: '빙염검',         type: 'weapon', slot: 'weapon', tier: 4, icon: '⚔️',
+    stats: { attack: 60, fireDmg: 10, iceDmg: 10 }, resistances: { fire: 10, cold: 10 }, desc: '불과 얼음의 힘이 공존하는 검' },
+  guardian_plate:    { name: '수호자의 갑주',  type: 'armor', slot: 'armor', tier: 4, icon: '🛡️',
+    stats: { defense: 55, hp: 70 }, resistances: {}, desc: '수호자의 정신이 깃든 중갑' },
+  storm_god_blade:  { name: '폭풍신의 검',    type: 'weapon', slot: 'weapon', tier: 7, icon: '⚡',
+    stats: { attack: 200, lightningDmg: 40, speed: 25 }, resistances: { lightning: 30 }, desc: '폭풍의 신이 내린 궁극의 검' },
 };
 
 // ---- 지역 정의 ----
@@ -625,6 +641,26 @@ export const RECIPES = [
     ingredients: [{ id:'empty_bottle', amount:1 },{ id:'herb', amount:2 }] },
   { id: 'scraps_stew', name: '잔반 스튜', result: 'food_scraps', type: 'food', amount: 3,
     ingredients: [{ id:'food_scraps', amount:2 },{ id:'herb', amount:1 },{ id:'salt', amount:1 }] },
+
+  // === 복합 장비 레시피 (장비를 재료로 사용) ===
+  { id: 'magic_sword', name: '마검', result: 'magic_sword', type: 'equipment', amount: 1,
+    ingredients: [{ id:'iron_sword', amount:1, type:'equipment' },{ id:'enchanted_sap', amount:5 },{ id:'crystal', amount:3 }] },
+  { id: 'ice_flame_sword', name: '빙염검', result: 'ice_flame_sword', type: 'equipment', amount: 1,
+    ingredients: [{ id:'flame_brand', amount:1, type:'equipment' },{ id:'frost_edge', amount:1, type:'equipment' },{ id:'mithril_ingot', amount:2 }] },
+  { id: 'guardian_plate', name: '수호자의 갑주', result: 'guardian_plate', type: 'equipment', amount: 1,
+    ingredients: [{ id:'steel_plate', amount:1, type:'equipment' },{ id:'mithril_ingot', amount:3 },{ id:'enchanted_crystal', amount:2 }] },
+  { id: 'storm_god_blade', name: '폭풍신의 검', result: 'storm_god_blade', type: 'equipment', amount: 1,
+    ingredients: [{ id:'storm_glaive', amount:1, type:'equipment' },{ id:'void_reaper', amount:1, type:'equipment' },{ id:'eternity_shard', amount:1 }] },
+
+  // === 버프 아이템 레시피 ===
+  { id: 'warrior_elixir', name: '전사의 비약', result: 'warrior_elixir', type: 'buff', amount: 1,
+    ingredients: [{ id:'herb_potion', amount:3 },{ id:'fire_essence', amount:2 },{ id:'raw_meat', amount:5 }] },
+  { id: 'guardian_elixir', name: '수호의 비약', result: 'guardian_elixir', type: 'buff', amount: 1,
+    ingredients: [{ id:'herb_potion', amount:3 },{ id:'ice_essence', amount:2 },{ id:'beast_hide', amount:5 }] },
+  { id: 'lucky_elixir', name: '행운의 비약', result: 'lucky_elixir', type: 'buff', amount: 1,
+    ingredients: [{ id:'herb_potion', amount:3 },{ id:'crystal', amount:3 },{ id:'shell', amount:5 }] },
+  { id: 'gather_booster', name: '채집 부스터', result: 'gather_booster', type: 'buff', amount: 1,
+    ingredients: [{ id:'energy_drink', amount:1 },{ id:'mountain_herb', amount:5 },{ id:'enchanted_sap', amount:3 }] },
 ];
 
 // ---- 탈것 정의 ----
@@ -781,6 +817,7 @@ export const MARKET_BASE_PRICES = {
   mithril_ingot: 80, reinforced_steel: 120, void_alloy: 250,
   cooked_meat: 8, herb_potion: 15, fire_potion: 40, ice_potion: 40,
   mineral_residue: 1, metal_dust: 2, empty_bottle: 1, food_scraps: 1, repair_kit: 15,
+  warrior_elixir: 60, guardian_elixir: 60, lucky_elixir: 60, gather_booster: 100,
 };
 
 // ---- 레벨 경험치 테이블 ----
@@ -850,4 +887,29 @@ export const EXPEDITION_CONFIG = {
   staminaRecoveryInterval: 30,
   staminaRecoveryAmount: 1,
   maxStamina: 100,
+};
+
+// ---- 봉헌 시스템 설정 ----
+export const SHRINE_CONFIG = {
+  tierPoints: { 1: 1, 2: 3, 3: 6, 4: 10, 5: 15, 6: 21, 7: 28 },
+  enhancementPointsPerLevel: 2,
+  stats: ['attack', 'defense', 'hp', 'speed', 'luck'],
+  statNames: {
+    attack: '공격력', defense: '방어력', hp: '최대 HP', speed: '속도', luck: '행운',
+  },
+  milestones: {
+    10:  { name: '10회 봉헌', desc: '최대 HP +50', reward: { type: 'permanentBonus', key: 'maxHpBonus', value: 50 } },
+    30:  { name: '30회 봉헌', desc: '공격력 +10%', reward: { type: 'percentBonus', key: 'attack', value: 10 } },
+    50:  { name: '50회 봉헌', desc: '모든 스탯 +5', reward: { type: 'allStats', value: 5 } },
+    100: { name: '100회 봉헌', desc: '전설 레시피 해금', reward: { type: 'unlockRecipe', recipeId: 'storm_god_blade' } },
+    200: { name: '200회 봉헌', desc: '모든 스탯 +10%', reward: { type: 'percentBonusAll', value: 10 } },
+  },
+};
+
+// ---- 버프 정의 ----
+export const BUFF_DEFINITIONS = {
+  warrior_elixir:  { name: '전사의 비약', stat: 'attack',      value: 20, duration: 300, icon: '⚔️', isPercent: true },
+  guardian_elixir: { name: '수호의 비약', stat: 'defense',     value: 20, duration: 300, icon: '🛡️', isPercent: true },
+  lucky_elixir:    { name: '행운의 비약', stat: 'luck',        value: 30, duration: 300, icon: '🍀', isPercent: true },
+  gather_booster:  { name: '채집 부스터', stat: 'gatherSpeed', value: 50, duration: 600, icon: '🌿', isPercent: true },
 };
