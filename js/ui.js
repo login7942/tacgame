@@ -137,6 +137,7 @@ export class GameUI {
   }
 
   renderCurrentTab() {
+    console.log('📍 renderCurrentTab:', this.currentTab);
     switch (this.currentTab) {
       case 'zones': this.renderZones(); break;
       case 'inventory': this.renderInventory(); break;
@@ -193,10 +194,15 @@ export class GameUI {
 
   // ---- 지역 탭 ----
   renderZones() {
+    console.log('🗺️ renderZones 호출');
     const s = this.engine.getState();
-    if (!s) return;
+    if (!s) {
+      console.warn('⚠️ 게임 상태가 없습니다');
+      return;
+    }
     const visibleZones = this.engine.getVisibleZones();
     const currentZone = ZONES[s.player.currentZone];
+    console.log('현재 지역:', currentZone?.name, '/ 보이는 지역 수:', visibleZones.length);
 
     // 현재 지역 정보
     const infoEl = document.getElementById('current-zone-info');
