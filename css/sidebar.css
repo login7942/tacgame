@@ -240,3 +240,94 @@
   position: relative;
   z-index: 1;
 }
+
+/* ===== 카테고리 및 서브메뉴 ===== */
+.menu-category {
+  margin: 0;
+}
+
+.category-btn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  padding: 14px 20px;
+  text-align: left;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.category-btn::after {
+  content: '▼';
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.category-btn:hover {
+  background: #1a2235;
+  color: #fff;
+}
+
+.menu-category.open .category-btn {
+  background: #1a2235;
+  color: #fff;
+}
+
+.menu-category.open .category-btn::after {
+  transform: rotate(-180deg);
+}
+
+/* 서브메뉴 */
+.submenu {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 0;
+  overflow: hidden;
+  background: #0f1520;
+  transition: max-height 0.3s ease;
+}
+
+.menu-category.open .submenu {
+  max-height: 500px;
+}
+
+.submenu li {
+  margin: 0;
+}
+
+.submenu .tab-btn {
+  padding-left: 40px;
+  font-size: 14px;
+  color: #9ca3af;
+  background: transparent;
+}
+
+.submenu .tab-btn:hover {
+  background: #1a2235;
+  color: #fff;
+  padding-left: 42px;
+}
+
+.submenu .tab-btn.active {
+  background: #1e2940;
+  color: #6366f1;
+  font-weight: 500;
+  padding-left: 42px;
+}
+
+.submenu .tab-btn.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 3px;
+  background: #6366f1;
+}

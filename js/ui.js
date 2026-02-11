@@ -29,8 +29,13 @@ export class GameUI {
     this.engine.on('toast', (t) => this.showToast(t.msg, t.type));
     this.engine.on('defeat', (d) => this.showDefeatModal(d));
     this.engine.on('combatStart', () => this.renderCurrentTab());
-    this.renderCurrentTab();
-    this.updateTopBar();
+
+    // DOM이 완전히 로드된 후 렌더링
+    // requestAnimationFrame을 사용하여 다음 프레임에서 렌더링
+    requestAnimationFrame(() => {
+      this.renderCurrentTab();
+      this.updateTopBar();
+    });
   }
 
   // ============================================================
@@ -89,6 +94,40 @@ export class GameUI {
     });
 
     console.log('✅ 사이드바 이벤트 바인딩 완료');
+
+    // 카테고리 토글 기능
+    this.bindCategoryToggle();
+  }
+
+  // ============================================================
+  // 카테고리 토글
+  // ============================================================
+  bindCategoryToggle() {
+    const categoryBtns = document.querySelectorAll('.category-btn');
+
+    categoryBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const menuCategory = btn.closest('.menu-category');
+        const isOpen = menuCategory.classList.contains('open');
+
+        // 다른 카테고리 닫기 (아코디언 방식)
+        document.querySelectorAll('.menu-category').forEach(cat => {
+          if (cat !== menuCategory) {
+            cat.classList.remove('open');
+          }
+        });
+
+        // 현재 카테고리 토글
+        menuCategory.classList.toggle('open');
+
+        console.log('카테고리 토글:', isOpen ? '닫기' : '열기');
+      });
+    });
+
+    console.log('✅ 카테고리 토글 바인딩 완료');
   }
 
   // ============================================================
@@ -104,8 +143,17 @@ export class GameUI {
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
         const tab = btn.dataset.tab;
+        const filter = btn.dataset.filter; // 필터 속성 가져오기
+
         document.getElementById(`panel-${tab}`).classList.add('active');
         this.currentTab = tab;
+
+        // 제작 탭에 필터가 있으면 적용
+        if (tab === 'crafting' && filter) {
+          this.craftingFilter = filter;
+          console.log('🔨 제작 필터 적용:', filter);
+        }
+
         this.renderCurrentTab();
 
         // 사이드바 닫기 (탭 선택 시)
@@ -206,6 +254,10 @@ export class GameUI {
 
     // 현재 지역 정보
     const infoEl = document.getElementById('current-zone-info');
+    if (!infoEl) {
+      console.error('❌ current-zone-info 요소를 찾을 수 없습니다!');
+      return;
+    }
     if (currentZone) {
       const deployedCount = s.workers.filter(w => w.deployedZone === s.player.currentZone).length;
       const gatherSnap = this.engine.getGatherSnapshot();
@@ -270,6 +322,10 @@ export class GameUI {
 
     // 지역 리스트
     const listEl = document.getElementById('zone-list');
+    if (!listEl) {
+      console.error('❌ zone-list 요소를 찾을 수 없습니다!');
+      return;
+    }
     let html = '';
     for (const zId of Object.keys(ZONES)) {
       const zone = ZONES[zId];
@@ -293,7 +349,9 @@ export class GameUI {
           ${!canEnter.ok && !isCurrent ? `<div style="font-size:9px;color:#e74c3c;margin-top:4px;">${canEnter.reason}</div>` : ''}
         </div>`;
     }
+    console.log('🏞️ 지역 HTML 생성 완료, 길이:', html.length);
     listEl.innerHTML = html;
+    console.log('✅ zone-list 업데이트 완료');
 
     // 클릭 이벤트
     listEl.querySelectorAll('.zone-card:not(.locked)').forEach(card => {
