@@ -18,7 +18,11 @@ import { CodexSystem } from './systems/codex.js';
 import { MissionSystem } from './systems/missions.js';
 import { ExpeditionSystem } from './systems/expedition.js';
 import { ShrineSystem } from './systems/shrine.js';
-import { rand, clamp, uid } from './utils.js';
+
+// ---- 유틸리티 ----
+function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ---- 기본 상태 생성 ----
 function createDefaultState() {
@@ -102,9 +106,7 @@ export class GameEngine {
     this.shrine = null; // ShrineSystem 인스턴스
   }
 
-  // ============================================================
-  // 이벤트 시스템
-  // ============================================================
+  // ---- 이벤트 시스템 ----
   on(event, cb) {
     if (!this.listeners[event]) this.listeners[event] = [];
     this.listeners[event].push(cb);
@@ -113,9 +115,7 @@ export class GameEngine {
     (this.listeners[event] || []).forEach(cb => cb(data));
   }
 
-  // ============================================================
-  // 초기화
-  // ============================================================
+  // ---- 초기화 ----
   init() {
     this.state = this.loadState() || createDefaultState();
     this.initCombatSystem();
@@ -130,9 +130,7 @@ export class GameEngine {
     this.emit('stateChanged', this.state);
   }
 
-  // ============================================================
-  // 서브시스템 초기화 (콜백 브릿지)
-  // ============================================================
+  // ---- 전투 시스템 초기화 (콜백 브릿지) ----
   initCombatSystem() {
     this.combat = new CombatSystem({
       getPlayerStats:  () => this.getPlayerStats(),
@@ -751,9 +749,7 @@ export class GameEngine {
     this.emit('stateChanged', this.state);
   }
 
-  // ============================================================
-  // 저장/불러오기
-  // ============================================================
+  // ---- 저장/불러오기 ----
   saveState() {
     this.state.lastSave = Date.now();
     // MarketSystem 상태 동기화
@@ -907,9 +903,7 @@ export class GameEngine {
     this.emit('toast', { msg: '게임이 초기화되었습니다.', type: 'info' });
   }
 
-  // ============================================================
-  // 게임 루프 (500ms 틱)
-  // ============================================================
+  // ---- 게임 루프 ----
   startGameLoop() {
     if (this.tickInterval) clearInterval(this.tickInterval);
     this.tickInterval = setInterval(() => this.tick(), 1000);
@@ -1003,10 +997,7 @@ export class GameEngine {
     this.emit('tick', s);
   }
 
-  // ============================================================
-  // 장비 시스템
-  // ============================================================
-  // 장비 조회/계산
+  // ---- 장비 Helper 함수 ----
   getEquipmentByUid(uid) {
     return this.state.equipment.find(e => e.uid === uid);
   }
@@ -1044,9 +1035,7 @@ export class GameEngine {
     return enhanced;
   }
 
-  // ============================================================
-  // 플레이어 시스템 (스탯, 이동, 채집)
-  // ============================================================
+  // ---- 플레이어 스탯 계산 ----
   getPlayerStats() {
     const s = this.state;
     const base = { attack: s.player.attack, defense: s.player.defense, speed: s.player.speed, luck: s.player.luck, hp: s.player.maxHp };
@@ -1224,9 +1213,7 @@ export class GameEngine {
     return gathered;
   }
 
-  // ============================================================
-  // 인벤토리 시스템
-  // ============================================================
+  // ---- 인벤토리 ----
   addItem(itemId, amount = 1) {
     if (!this.state.inventory[itemId]) this.state.inventory[itemId] = 0;
     this.state.inventory[itemId] += amount;
@@ -1265,7 +1252,7 @@ export class GameEngine {
     return 1;
   }
 
-  // 장비 인스턴스 생성/장착
+  // ---- 장비 ----
   addEquipment(baseId) {
     // 개별 인스턴스 생성
     const base = EQUIPMENT[baseId];
@@ -1358,9 +1345,7 @@ export class GameEngine {
     return found.length >= amount ? found : null;
   }
 
-  // ============================================================
-  // 제작 시스템
-  // ============================================================
+  // ---- 제작 ----
   canCraft(recipeId) {
     const recipe = RECIPES.find(r => r.id === recipeId);
     if (!recipe) return false;
@@ -1590,9 +1575,7 @@ export class GameEngine {
     this.emit('stateChanged', this.state);
   }
 
-  // ============================================================
-  // 일꾼 시스템 (고용, 배치, 유지비)
-  // ============================================================
+  // ---- 일꾼 시스템 ----
   hireWorker(type) {
     const cost = HIRE_COSTS[type];
     if (!cost) return;
@@ -1872,9 +1855,7 @@ export class GameEngine {
     }
   }
 
-  // ============================================================
-  // 탈것 시스템
-  // ============================================================
+  // ---- 탈것 ----
   canCraftVehicle(vehicleId) {
     const v = VEHICLES[vehicleId];
     if (!v) return false;
@@ -1918,9 +1899,7 @@ export class GameEngine {
   }
 
   // ---- 시장 ----
-  // ============================================================
-  // 시장 시스템 (위임)
-  // ============================================================
+  // ---- 시장 (MarketSystem에 위임) ----
   buyFromMarket(itemId, quantity) {
     if (this.market) {
       this.market.buy(itemId, quantity);
@@ -1968,9 +1947,7 @@ export class GameEngine {
     return this.market ? this.market.completeMerchantQuest(questId) : { success: false };
   }
 
-  // ============================================================
-  // 패배 시스템
-  // ============================================================
+  // ---- 패배 / 숙련도 ----
   defeat(cause, type = 'combat') {
     const s = this.state;
     if (this.combat) this.combat.stopAuto();
@@ -2045,9 +2022,7 @@ export class GameEngine {
     this.emit('stateChanged', s);
   }
 
-  // ============================================================
-  // 숙련도 시스템 (Mastery)
-  // ============================================================
+  // ---- 숙련도 (Mastery) ----
   getMasteryTier(count) {
     const tiers = MASTERY_CONFIG.tiers;
     let tier = 0;
@@ -2171,9 +2146,7 @@ export class GameEngine {
     };
   }
 
-  // ============================================================
-  // 접근자 메서드 (Getters)
-  // ============================================================
+  // ---- 접근자 ----
   getState() { return this.state; }
 
   getCodexProgress(category) {

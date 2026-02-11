@@ -3,9 +3,7 @@
 // GameEngine과 콜백으로만 통신, 내부 상태 자체 관리
 // ============================================================
 import { ZONES, RESOURCES } from '../data.js';
-
-function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+import { rand, clamp } from '../utils.js';
 
 // ---- 자동채집 시스템 ----
 export class GatheringSystem {

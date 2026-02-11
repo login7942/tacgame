@@ -7,7 +7,6 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          MERCENARY_TYPES, MERCENARY_HIRE_COSTS, MERCENARY_NAMES,
          MERC_STAMINA_FOOD, EXPEDITION_CONFIG,
          SHRINE_CONFIG, BUFF_DEFINITIONS } from './data.js';
-import { formatNumber, getPercent } from './utils.js';
 
 export class GameUI {
   constructor(engine) {

@@ -3,8 +3,7 @@
 // GameEngine과 콜백으로만 통신, 내부 상태 자체 관리
 // ============================================================
 import { RESOURCES } from '../data.js';
-
-function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+import { rand } from '../utils.js';
 
 // ---- 장비 강화 시스템 ----
 export class EnhancementSystem {
