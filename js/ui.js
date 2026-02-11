@@ -22,6 +22,7 @@ export class GameUI {
 
   init() {
     this.bindTabs();
+    this.bindSidebar();
     this.bindEvents();
     this.engine.on('tick', () => this.updateTopBar());
     this.engine.on('stateChanged', () => this.renderCurrentTab());
@@ -32,8 +33,49 @@ export class GameUI {
     this.updateTopBar();
   }
 
-  // ---- 탭 ----
+  // ============================================================
+  // 사이드바 메뉴
+  // ============================================================
+  bindSidebar() {
+    const sidebar = document.getElementById('sidebar-nav');
+    const overlay = document.getElementById('sidebar-overlay');
+    const menuToggle = document.getElementById('menu-toggle');
+    const sidebarClose = document.getElementById('sidebar-close');
+
+    // 사이드바 열기
+    const openSidebar = () => {
+      sidebar.classList.add('active');
+      overlay.classList.add('active');
+      document.body.style.overflow = 'hidden';
+    };
+
+    // 사이드바 닫기
+    const closeSidebar = () => {
+      sidebar.classList.remove('active');
+      overlay.classList.remove('active');
+      document.body.style.overflow = '';
+    };
+
+    // 이벤트 바인딩
+    menuToggle.addEventListener('click', openSidebar);
+    sidebarClose.addEventListener('click', closeSidebar);
+    overlay.addEventListener('click', closeSidebar);
+
+    // ESC 키로 닫기
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && sidebar.classList.contains('active')) {
+        closeSidebar();
+      }
+    });
+  }
+
+  // ============================================================
+  // 탭 메뉴
+  // ============================================================
   bindTabs() {
+    const sidebar = document.getElementById('sidebar-nav');
+    const overlay = document.getElementById('sidebar-overlay');
+
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -43,12 +85,13 @@ export class GameUI {
         document.getElementById(`panel-${tab}`).classList.add('active');
         this.currentTab = tab;
         this.renderCurrentTab();
+
+        // 사이드바 닫기 (탭 선택 시)
+        sidebar.classList.remove('active');
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
       });
     });
-
-    // 마우스 드래그 스크롤
-    const nav = document.getElementById('tab-nav');
-    let isDown = false, startX, scrollLeft, hasDragged = false;
     nav.addEventListener('mousedown', (e) => {
       isDown = true; hasDragged = false;
       startX = e.pageX - nav.offsetLeft;

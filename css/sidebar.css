@@ -1,0 +1,229 @@
+/* ===== 햄버거 메뉴 버튼 ===== */
+.menu-toggle {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  background: #1e2940;
+  border: 1px solid #2a3550;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  transition: all 0.2s ease;
+}
+
+.menu-toggle:hover {
+  background: #2a3550;
+  border-color: #3a4660;
+}
+
+.menu-toggle:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.hamburger-icon {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 18px;
+}
+
+.hamburger-icon span {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+}
+
+/* 햄버거 애니메이션 (메뉴 열렸을 때) */
+.sidebar-nav.active ~ #top-bar .menu-toggle .hamburger-icon span:nth-child(1) {
+  transform: rotate(45deg) translate(5px, 5px);
+}
+
+.sidebar-nav.active ~ #top-bar .menu-toggle .hamburger-icon span:nth-child(2) {
+  opacity: 0;
+}
+
+.sidebar-nav.active ~ #top-bar .menu-toggle .hamburger-icon span:nth-child(3) {
+  transform: rotate(-45deg) translate(6px, -6px);
+}
+
+/* ===== 사이드바 네비게이션 ===== */
+.sidebar-nav {
+  position: fixed;
+  left: -280px;
+  top: 0;
+  width: 280px;
+  height: 100vh;
+  background: #151c2c;
+  border-right: 1px solid #2a3550;
+  z-index: 1002;
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+
+.sidebar-nav.active {
+  left: 0;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
+}
+
+/* 사이드바 헤더 */
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: #1a2235;
+  border-bottom: 1px solid #2a3550;
+}
+
+.sidebar-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+
+.sidebar-close {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.sidebar-close:hover {
+  background: #2a3550;
+}
+
+/* 사이드바 메뉴 리스트 */
+.sidebar-menu {
+  list-style: none;
+  padding: 8px 0;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sidebar-menu li {
+  margin: 0;
+}
+
+.sidebar-menu .tab-btn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #b0b8cc;
+  padding: 14px 20px;
+  text-align: left;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.sidebar-menu .tab-btn::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 3px;
+  background: #6366f1;
+  transform: scaleY(0);
+  transition: transform 0.2s ease;
+}
+
+.sidebar-menu .tab-btn:hover {
+  background: #1a2235;
+  color: #fff;
+}
+
+.sidebar-menu .tab-btn.active {
+  background: #1e2940;
+  color: #fff;
+  font-weight: 500;
+}
+
+.sidebar-menu .tab-btn.active::before {
+  transform: scaleY(1);
+}
+
+/* 사이드바 오버레이 */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0);
+  z-index: 1001;
+  pointer-events: none;
+  transition: background 0.3s ease;
+}
+
+.sidebar-overlay.active {
+  background: rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+/* ===== Top Bar 조정 (햄버거 버튼 공간 확보) ===== */
+#top-bar {
+  position: relative;
+  padding-left: 56px; /* 햄버거 버튼 공간 */
+}
+
+.status-meters {
+  margin-left: 0;
+}
+
+/* 모바일 최적화 */
+@media (max-width: 480px) {
+  .sidebar-nav {
+    width: 85%;
+    left: -85%;
+  }
+
+  #top-bar {
+    padding-left: 52px;
+  }
+
+  .menu-toggle {
+    left: 8px;
+    width: 34px;
+    height: 34px;
+  }
+}
+
+/* 태블릿 이상 */
+@media (min-width: 768px) {
+  .sidebar-nav {
+    width: 260px;
+    left: -260px;
+  }
+}
+
+/* ===== 기존 tab-nav 숨기기 ===== */
+#tab-nav {
+  display: none !important;
+}

@@ -5,11 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>생존의 별 - Survival Crafting Game</title>
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/sidebar.css">
 </head>
 <body>
   <div id="app">
     <!-- Top Bar -->
     <header id="top-bar">
+      <button id="menu-toggle" class="menu-toggle" aria-label="메뉴 열기">
+        <span class="hamburger-icon">
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+      </button>
       <div class="status-meters">
         <div class="meter" id="hp-meter">
           <span class="meter-icon">❤️</span>
@@ -35,20 +43,29 @@
       </div>
     </header>
 
-    <!-- Tab Navigation -->
-    <nav id="tab-nav">
-      <button class="tab-btn active" data-tab="zones">🗺️ 지역</button>
-      <button class="tab-btn" data-tab="inventory">🎒 인벤토리</button>
-      <button class="tab-btn" data-tab="crafting">🔨 제작</button>
-      <button class="tab-btn" data-tab="workers">👷 일꾼</button>
-      <button class="tab-btn" data-tab="combat">⚔️ 전투</button>
-      <button class="tab-btn" data-tab="expedition">🏰 원정대</button>
-      <button class="tab-btn" data-tab="vehicles">🚀 탈것</button>
-      <button class="tab-btn" data-tab="codex">📖 도감</button>
-      <button class="tab-btn" data-tab="missions">📜 미션</button>
-      <button class="tab-btn" data-tab="shrine">🏛️ 봉헌</button>
-      <button class="tab-btn" data-tab="market">🏪 시장</button>
+    <!-- Sidebar Navigation -->
+    <nav id="sidebar-nav" class="sidebar-nav">
+      <div class="sidebar-header">
+        <h2>생존의 별</h2>
+        <button id="sidebar-close" class="sidebar-close" aria-label="메뉴 닫기">✕</button>
+      </div>
+      <ul class="sidebar-menu">
+        <li><button class="tab-btn active" data-tab="zones">🗺️ 지역</button></li>
+        <li><button class="tab-btn" data-tab="inventory">🎒 인벤토리</button></li>
+        <li><button class="tab-btn" data-tab="crafting">🔨 제작</button></li>
+        <li><button class="tab-btn" data-tab="workers">👷 일꾼</button></li>
+        <li><button class="tab-btn" data-tab="combat">⚔️ 전투</button></li>
+        <li><button class="tab-btn" data-tab="expedition">🏰 원정대</button></li>
+        <li><button class="tab-btn" data-tab="vehicles">🚀 탈것</button></li>
+        <li><button class="tab-btn" data-tab="codex">📖 도감</button></li>
+        <li><button class="tab-btn" data-tab="missions">📜 미션</button></li>
+        <li><button class="tab-btn" data-tab="shrine">🏛️ 봉헌</button></li>
+        <li><button class="tab-btn" data-tab="market">🏪 시장</button></li>
+      </ul>
     </nav>
+
+    <!-- Overlay for sidebar -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
     <!-- Tab Content -->
     <main id="tab-content">

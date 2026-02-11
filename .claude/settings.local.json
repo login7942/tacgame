@@ -5,7 +5,8 @@
       "Bash(node refactor_comments.js:*)",
       "Bash(grep:*)",
       "Bash(node -c:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(css/sidebar.css << 'EOF'\n\n/* ===== 기존 tab-nav 숨기기 ===== */\n#tab-nav {\n  display: none !important;\n}\nEOF)"
     ]
   }
 }
