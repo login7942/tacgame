@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1001;
+  z-index: 100;
   transition: all 0.2s ease;
 }
 
@@ -189,8 +189,8 @@
 
 /* ===== Top Bar 조정 (햄버거 버튼 공간 확보) ===== */
 #top-bar {
-  position: relative;
-  padding-left: 56px; /* 햄버거 버튼 공간 */
+  position: relative !important;
+  padding-left: 56px !important; /* 햄버거 버튼 공간 */
 }
 
 .status-meters {

@@ -21,8 +21,8 @@ export class GameUI {
   }
 
   init() {
-    this.bindTabs();
     this.bindSidebar();
+    this.bindTabs();
     this.bindEvents();
     this.engine.on('tick', () => this.updateTopBar());
     this.engine.on('stateChanged', () => this.renderCurrentTab());
@@ -42,8 +42,19 @@ export class GameUI {
     const menuToggle = document.getElementById('menu-toggle');
     const sidebarClose = document.getElementById('sidebar-close');
 
+    if (!sidebar || !overlay || !menuToggle || !sidebarClose) {
+      console.error('사이드바 요소를 찾을 수 없습니다:', {
+        sidebar: !!sidebar,
+        overlay: !!overlay,
+        menuToggle: !!menuToggle,
+        sidebarClose: !!sidebarClose
+      });
+      return;
+    }
+
     // 사이드바 열기
     const openSidebar = () => {
+      console.log('사이드바 열기');
       sidebar.classList.add('active');
       overlay.classList.add('active');
       document.body.style.overflow = 'hidden';
@@ -51,14 +62,23 @@ export class GameUI {
 
     // 사이드바 닫기
     const closeSidebar = () => {
+      console.log('사이드바 닫기');
       sidebar.classList.remove('active');
       overlay.classList.remove('active');
       document.body.style.overflow = '';
     };
 
     // 이벤트 바인딩
-    menuToggle.addEventListener('click', openSidebar);
-    sidebarClose.addEventListener('click', closeSidebar);
+    menuToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openSidebar();
+    });
+    sidebarClose.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSidebar();
+    });
     overlay.addEventListener('click', closeSidebar);
 
     // ESC 키로 닫기
@@ -67,6 +87,8 @@ export class GameUI {
         closeSidebar();
       }
     });
+
+    console.log('✅ 사이드바 이벤트 바인딩 완료');
   }
 
   // ============================================================
