@@ -913,3 +913,65 @@ export const BUFF_DEFINITIONS = {
   lucky_elixir:    { name: '행운의 비약', stat: 'luck',        value: 30, duration: 300, icon: '🍀', isPercent: true },
   gather_booster:  { name: '채집 부스터', stat: 'gatherSpeed', value: 50, duration: 600, icon: '🌿', isPercent: true },
 };
+
+// ---- 패배 패널티 설정 ----
+export const DEFEAT_CONFIG = {
+  combat: {
+    goldLossPercent: 10,
+    durabilityLossPercent: 20,
+    hpRestorePercent: 20,
+    debuff: { stat: 'attack', value: -30, duration: 300, name: '부상', icon: '🩹', isPercent: true },
+  },
+  starvation: {
+    goldLossPercent: 20,
+    hpRestorePercent: 10,
+    debuff: { stat: 'gatherSpeed', value: -50, duration: 600, name: '탈진', icon: '😰', isPercent: true },
+  },
+  environment: {
+    hpRestorePercent: 15,
+    forceRetreat: true,
+    debuff: { stat: 'attack', value: -30, duration: 300, name: '부상', icon: '🩹', isPercent: true },
+  },
+};
+
+// ---- 숙련도(마스터리) 설정 ----
+export const MASTERY_CONFIG = {
+  tiers: [
+    { threshold: 10,   label: '견습' },
+    { threshold: 30,   label: '숙련' },
+    { threshold: 100,  label: '전문가' },
+    { threshold: 300,  label: '장인' },
+    { threshold: 1000, label: '대가' },
+  ],
+  combat: {
+    perTierBonus: { damagePercent: 2, dropRatePercent: 5 },
+    milestones: [
+      { kills: 50,   reward: { key: 'combatPower', value: 1 } },
+      { kills: 200,  reward: { key: 'combatPower', value: 3 } },
+      { kills: 500,  reward: { key: 'combatPower', value: 5 } },
+      { kills: 1000, reward: { key: 'combatPower', value: 10 } },
+      { kills: 5000, reward: { key: 'combatPower', value: 20 } },
+    ],
+  },
+  gathering: {
+    perTierBonus: { gatherChancePercent: 10 },
+    milestones: [
+      { count: 100,   reward: { key: 'gatherSpeed', value: 2 } },
+      { count: 500,   reward: { key: 'gatherSpeed', value: 5 } },
+      { count: 1000,  reward: { key: 'gatherSpeed', value: 8 } },
+      { count: 5000,  reward: { key: 'gatherSpeed', value: 12 } },
+      { count: 10000, reward: { key: 'gatherSpeed', value: 20 } },
+    ],
+  },
+  crafting: {
+    perTierBonus: { saveChancePercent: 5 },
+    tier3Bonus: { greatSuccessPercent: 10 },
+    milestones: [
+      { count: 20,   reward: { key: 'workerEfficiency', value: 1 } },
+      { count: 50,   reward: { key: 'workerEfficiency', value: 3 } },
+      { count: 100,  reward: { key: 'workerEfficiency', value: 5 } },
+      { count: 300,  reward: { key: 'maxHpBonus', value: 20 } },
+      { count: 1000, reward: { key: 'maxHpBonus', value: 50 } },
+    ],
+  },
+};

@@ -25,7 +25,7 @@ export class GameUI {
     this.engine.on('tick', () => this.updateTopBar());
     this.engine.on('stateChanged', () => this.renderCurrentTab());
     this.engine.on('toast', (t) => this.showToast(t.msg, t.type));
-    this.engine.on('death', (d) => this.showDeathScreen(d));
+    this.engine.on('defeat', (d) => this.showDefeatModal(d));
     this.engine.on('combatStart', () => this.renderCurrentTab());
     this.renderCurrentTab();
     this.updateTopBar();
@@ -101,17 +101,22 @@ export class GameUI {
     // Stamina
     document.querySelector('.stamina-fill').style.width = `${(p.stamina / p.maxStamina) * 100}%`;
     document.querySelector('#stamina-meter .meter-text').textContent = `${Math.floor(p.stamina)}/${p.maxStamina}`;
-    // Gold, Level, Legacy
+    // Gold, Level, Mastery
     document.getElementById('gold-display').textContent = `💰 ${p.gold.toLocaleString()}`;
     document.getElementById('level-display').textContent = `Lv.${p.level}`;
-    document.getElementById('legacy-display').textContent = `⭐ ${p.legacyPoints}`;
-    // 활성 버프 표시
+    const mastery = this.engine.getMasterySnapshot();
+    const totalMasteryTier = (mastery.combat.tier || 0) + (mastery.gathering.tier || 0) + (mastery.crafting.tier || 0);
+    document.getElementById('mastery-display').textContent = `📖 숙련 ${totalMasteryTier}`;
+    // 활성 버프/디버프 표시
     const buffEl = document.getElementById('buff-display');
     if (buffEl && s.activeBuffs && s.activeBuffs.length > 0) {
       buffEl.innerHTML = s.activeBuffs.map(b => {
-        const min = Math.floor(b.ticksRemaining / 60);
-        const sec = b.ticksRemaining % 60;
-        return `<span class="buff-badge" title="${b.name}: ${b.stat} +${b.value}%">${b.icon} ${min}:${sec.toString().padStart(2,'0')}</span>`;
+        const remaining = b.ticksRemaining || 0;
+        const min = Math.floor(remaining / 60);
+        const sec = remaining % 60;
+        const cls = b.isDebuff ? 'buff-badge debuff-badge' : 'buff-badge';
+        const sign = b.value > 0 ? '+' : '';
+        return `<span class="${cls}" title="${b.name}: ${b.stat} ${sign}${b.value}${b.isPercent ? '%' : ''}">${b.icon} ${min}:${sec.toString().padStart(2,'0')}</span>`;
       }).join('');
       buffEl.style.display = '';
     } else if (buffEl) {
@@ -351,7 +356,6 @@ export class GameUI {
           <button class="btn ${isEquipped ? 'btn-warning' : 'btn-primary'}" id="modal-equip">${isEquipped ? '해제' : '장착'}</button>
           ${enhanceInfo.canEnhance ? `<button class="btn btn-success" id="modal-enhance">💎 강화 (+${enhanceLevel} → +${enhanceLevel+1})</button>` : ''}
           ${!isEquipped ? `<button class="btn btn-small" id="modal-shrine" style="background:#7c3aed;color:#fff;">🏛️ 봉헌</button>` : ''}
-          <button class="btn btn-danger btn-small" id="modal-vault">계승 보관</button>
         </div>`;
     } else {
       const res = RESOURCES[itemId];
@@ -372,7 +376,6 @@ export class GameUI {
         <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
           ${isFood ? `<button class="btn btn-success" id="modal-use-food">사용하기</button>` : ''}
           ${isBuff ? `<button class="btn btn-success" id="modal-use-buff">${buffDef.icon} 사용하기</button>` : ''}
-          <button class="btn btn-danger btn-small" id="modal-vault">계승 보관</button>
         </div>`;
     }
 
@@ -395,10 +398,6 @@ export class GameUI {
     });
     document.getElementById('modal-shrine')?.addEventListener('click', () => {
       this.showShrineOfferModal(itemId);
-    });
-    document.getElementById('modal-vault')?.addEventListener('click', () => {
-      this.engine.addToVault(itemId, 1);
-      this.closeModal();
     });
   }
 
@@ -515,6 +514,8 @@ export class GameUI {
       recipes = recipes.filter(r => r.type === this.craftingFilter);
     }
 
+    const mastery = this.engine.getMasterySnapshot();
+
     listEl.innerHTML = recipes.map(recipe => {
       const canCraft = this.engine.canCraft(recipe.id);
       const maxCraftable = this.engine.getMaxCraftableAmount(recipe.id);
@@ -531,11 +532,17 @@ export class GameUI {
         return `<span class="recipe-ingredient ${has ? 'has' : 'missing'}">${this.engine.getItemIcon(ing.id)} ${this.engine.getItemName(ing.id)} ${current}/${ing.amount}</span>`;
       }).join('');
 
+      // 제작 숙련도 뱃지
+      const recipeMastery = mastery.crafting.recipes[recipe.id];
+      const masteryBadge = recipeMastery && recipeMastery.tier > 0
+        ? `<span class="mastery-badge tier-${recipeMastery.tier}">${recipeMastery.label}</span>`
+        : '';
+
       return `
         <div class="recipe-card ${canCraft ? 'craftable' : ''}" data-recipe="${recipe.id}">
           <span class="recipe-icon">${resultIcon}</span>
           <div class="recipe-info">
-            <div class="recipe-name">${recipe.name}${recipe.amount > 1 ? ` x${recipe.amount}` : ''}</div>
+            <div class="recipe-name">${recipe.name}${recipe.amount > 1 ? ` x${recipe.amount}` : ''} ${masteryBadge}</div>
             <div class="recipe-ingredients">${ingredients}</div>
             ${maxCraftable > 1 ? `<div style="font-size:10px;color:#4fc3f7;margin-top:2px;">최대 ${maxCraftable}개 제작 가능</div>` : ''}
           </div>
@@ -1429,16 +1436,30 @@ export class GameUI {
       return b.tier - a.tier;
     });
 
+    const mastery = this.engine.getMasterySnapshot();
+
     listEl.innerHTML = items.map(item => {
       const locked = !item.discovered;
       const displayName = locked ? '???' : item.name;
       const displayIcon = locked ? '❓' : item.icon;
 
+      // 숙련도 뱃지
+      let masteryBadge = '';
+      if (!locked) {
+        if (item.type === 'monster' && mastery.combat.monsters[item.id]) {
+          const m = mastery.combat.monsters[item.id];
+          if (m.tier > 0) masteryBadge = `<span class="mastery-badge tier-${m.tier}">${m.label}</span>`;
+        } else if (item.type === 'resource' && mastery.gathering.resources[item.id]) {
+          const m = mastery.gathering.resources[item.id];
+          if (m.tier > 0) masteryBadge = `<span class="mastery-badge tier-${m.tier}">${m.label}</span>`;
+        }
+      }
+
       return `
         <div class="codex-card ${locked ? 'locked' : ''}" data-id="${item.id}" data-type="${item.type}">
           <span style="font-size:24px;opacity:${locked ? 0.3 : 1};">${displayIcon}</span>
           <div class="codex-info">
-            <div style="font-size:12px;font-weight:600;color:${locked ? '#555' : '#fff'};">${displayName}</div>
+            <div style="font-size:12px;font-weight:600;color:${locked ? '#555' : '#fff'};">${displayName} ${masteryBadge}</div>
             <div style="font-size:10px;color:#889;">
               ${locked ? '미발견' : `Tier ${item.tier}`}
               ${item.type === 'monster' && !locked ? ` | 처치: ${item.defeatedCount}회` : ''}
@@ -1465,8 +1486,14 @@ export class GameUI {
     const entry = this.engine.getCodexEntry(type + 's', id);
     if (!entry) return;
 
+    const mastery = this.engine.getMasterySnapshot();
+
     if (type === 'resource') {
       const res = RESOURCES[id];
+      const resMastery = mastery.gathering.resources[id];
+      const masteryInfo = resMastery && resMastery.tier > 0
+        ? `<div class="modal-stat-row"><span>📖 숙련</span><span class="mastery-badge tier-${resMastery.tier}">${resMastery.label} (채집 ${resMastery.count}회, 확률+${resMastery.tier * 10}%)</span></div>`
+        : '';
       html = `
         <div class="modal-title">${res.icon} ${res.name}</div>
         <div class="text-muted mb-8">Tier ${res.tier} | ${res.category}</div>
@@ -1479,9 +1506,14 @@ export class GameUI {
             <span>최초 획득</span>
             <span>${new Date(entry.firstGathered).toLocaleString()}</span>
           </div>
+          ${masteryInfo}
         </div>`;
     } else if (type === 'monster') {
       const mon = MONSTERS[id];
+      const monMastery = mastery.combat.monsters[id];
+      const masteryInfo = monMastery && monMastery.tier > 0
+        ? `<div class="modal-stat-row"><span>📖 숙련</span><span class="mastery-badge tier-${monMastery.tier}">${monMastery.label} (데미지+${monMastery.tier * 2}%, 드롭+${monMastery.tier * 5}%)</span></div>`
+        : '';
       html = `
         <div class="modal-title">${mon.icon} ${mon.name}</div>
         <div class="text-muted mb-8">Tier ${mon.tier} | HP: ${mon.hp} | ATK: ${mon.atk}</div>
@@ -1495,6 +1527,7 @@ export class GameUI {
             <span>${new Date(entry.firstDefeated).toLocaleString()}</span>
           </div>
           ${mon.weakness ? `<div class="modal-stat-row"><span>약점</span><span>${mon.weakness}</span></div>` : ''}
+          ${masteryInfo}
         </div>
         ${mon.loot && mon.loot.length > 0 ? `
         <div class="modal-section">
@@ -1702,7 +1735,12 @@ export class GameUI {
     const parts = [];
     if (reward.gold) parts.push(`💰${reward.gold}`);
     if (reward.exp) parts.push(`✨${reward.exp}`);
-    if (reward.legacyPoints) parts.push(`⭐${reward.legacyPoints}`);
+    if (reward.bonus) {
+      const bonusNames = { combatPower: '전투력', gatherSpeed: '채집속도', workerEfficiency: '일꾼효율', maxHpBonus: 'HP', goldBonus: '골드보너스', allStats: '전스탯' };
+      for (const [k, v] of Object.entries(reward.bonus)) {
+        parts.push(`🔺${bonusNames[k] || k}+${v}`);
+      }
+    }
     if (reward.item) {
       const name = this.engine.getItemName(reward.item);
       parts.push(`${name}x${reward.amount || 1}`);
@@ -1945,21 +1983,28 @@ export class GameUI {
     });
   }
 
-  // ---- 사망 화면 ----
-  showDeathScreen(data) {
-    const deathEl = document.getElementById('death-screen');
-    deathEl.classList.remove('hidden');
-    document.getElementById('death-cause').textContent = data.cause;
-    document.getElementById('death-summary').innerHTML = `
-      <div class="summary-row"><span>도달 레벨</span><span>Lv.${data.level}</span></div>
-      <div class="summary-row"><span>획득 레거시</span><span class="text-purple">+${data.legacyGain} ⭐</span></div>
-      <div class="summary-row"><span>총 레거시</span><span class="text-purple">${data.totalLegacy} ⭐</span></div>
-      <div class="summary-row"><span>영구 보너스</span><span class="text-green">채집+2% 전투+1 일꾼+1%</span></div>
-    `;
-    document.getElementById('btn-revive').onclick = () => {
-      this.engine.revive();
-      deathEl.classList.add('hidden');
-    };
+  // ---- 패배 모달 ----
+  showDefeatModal(data) {
+    const typeNames = { combat: '전투 패배', starvation: '탈진', environment: '환경 피해' };
+    const typeName = typeNames[data.type] || '패배';
+    const penaltyHtml = (data.penalties || []).map(p => `<div class="defeat-penalty">${p}</div>`).join('');
+
+    this.showModal(`
+      <div class="defeat-modal">
+        <h2>💀 ${typeName}</h2>
+        <p class="defeat-cause">${data.cause}</p>
+        <div class="defeat-penalties">
+          <h3>패널티</h3>
+          ${penaltyHtml || '<div class="defeat-penalty">없음</div>'}
+        </div>
+        <div class="defeat-hp">❤️ HP ${data.hpRestored}(으)로 복구</div>
+        <button class="btn btn-primary" id="btn-defeat-ok">확인</button>
+      </div>
+    `);
+
+    document.getElementById('btn-defeat-ok')?.addEventListener('click', () => {
+      this.closeModal();
+    });
   }
 
   // ---- 유틸 ----

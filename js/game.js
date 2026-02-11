@@ -8,7 +8,8 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          BYPRODUCT_RULES, WORKER_FOOD_TABLE,
          MERCENARY_TYPES, MERCENARY_NAMES, MERCENARY_HIRE_COSTS,
          MERC_STAMINA_FOOD, EXPEDITION_CONFIG,
-         SHRINE_CONFIG, BUFF_DEFINITIONS } from './data.js';
+         SHRINE_CONFIG, BUFF_DEFINITIONS,
+         DEFEAT_CONFIG, MASTERY_CONFIG } from './data.js';
 import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
@@ -33,8 +34,7 @@ function createDefaultState() {
       stamina: 100, maxStamina: 100,
       attack: 5, defense: 2, speed: 10, luck: 5,
       gold: 50,
-      legacyPoints: 0,
-      deaths: 0,
+      defeats: 0,
       currentZone: 'plains',
       equippedVehicle: null,
     },
@@ -48,9 +48,13 @@ function createDefaultState() {
     // combat 상태는 CombatSystem이 관리 (여기엔 저장용 최소 데이터만)
     permanentBonuses: {
       gatherSpeed: 0, combatPower: 0, workerEfficiency: 0,
-      maxHpBonus: 0, inheritanceSlots: 1,
+      maxHpBonus: 0,
     },
-    inheritanceVault: [], // items preserved across death
+    mastery: {
+      combat: { monsters: {}, totalKills: 0, claimedMilestones: [] },
+      gathering: { resources: {}, totalGathered: 0, claimedMilestones: [] },
+      crafting: { recipes: {}, totalCrafted: 0, claimedMilestones: [] },
+    },
     stats: { monstersKilled: 0, resourcesGathered: 0, itemsCrafted: 0, totalGoldEarned: 0 },
     workerMaintenance: { autoFeed: true, autoRepair: true },
     codex: {
@@ -173,7 +177,8 @@ export class GameEngine {
         this.state.player.gold += amt;
         this.state.stats.totalGoldEarned += amt;
       },
-      onDeath: (cause) => this.die(cause),
+      onDefeat: (cause) => this.defeat(cause, 'combat'),
+      getMonsterMastery: (monsterId) => this.getMasteryTier((this.state.mastery.combat.monsters[monsterId] || 0)),
       onStateChanged: () => this.emit('stateChanged', this.state),
     });
 
@@ -190,6 +195,11 @@ export class GameEngine {
         // 도감 등록
         if (this.codex && data.monsterId) {
           this.codex.discoverMonster(data.monsterId);
+        }
+
+        // 숙련도 추적
+        if (data.monsterId) {
+          this.trackCombatMastery(data.monsterId);
         }
       }
       this.emit('stateChanged', this.state);
@@ -413,13 +423,13 @@ export class GameEngine {
         }
         return max;
       },
-      getDeaths: () => this.state.player.deaths,
+      getDefeats: () => this.state.defeats || 0,
+      getMasterySnapshot: () => this.getMasterySnapshot(),
       addGold: (amt) => {
         this.state.player.gold += amt;
         this.state.stats.totalGoldEarned += amt;
       },
       addExp: (amt) => this.gainExp(amt),
-      addLegacyPoints: (amt) => { this.state.player.legacyPoints += amt; },
       grantItem: (itemId, amount) => this.addItem(itemId, amount),
       addPermanentBonus: (key, amount) => {
         if (!this.state.permanentBonuses[key]) {
@@ -865,6 +875,22 @@ export class GameEngine {
         }
       }
 
+      // ===== Migration: 패배/숙련도 시스템 =====
+      if (state.player.legacyPoints !== undefined) delete state.player.legacyPoints;
+      if (state.player.deaths !== undefined) delete state.player.deaths;
+      if (state.inheritanceVault !== undefined) delete state.inheritanceVault;
+      if (state.permanentBonuses && state.permanentBonuses.inheritanceSlots !== undefined) {
+        delete state.permanentBonuses.inheritanceSlots;
+      }
+      if (state.defeats === undefined) state.defeats = 0;
+      if (!state.mastery) {
+        state.mastery = {
+          combat: { monsters: {}, totalKills: 0, claimedMilestones: [] },
+          gathering: { resources: {}, totalGathered: 0, claimedMilestones: [] },
+          crafting: { recipes: {}, totalCrafted: 0, claimedMilestones: [] },
+        };
+      }
+
       return state;
     } catch { return null; }
   }
@@ -893,7 +919,7 @@ export class GameEngine {
     if (s.player.hunger <= 0) {
       s.player.hp = clamp(s.player.hp - 1, 0, s.player.maxHp);
       if (s.player.hp <= 0) {
-        this.die('굶주림으로 사망했습니다.');
+        this.defeat('굶주림으로 쓰러졌습니다.', 'starvation');
         return;
       }
     }
@@ -918,7 +944,7 @@ export class GameEngine {
         if (dmg > 0.1) {
           s.player.hp = clamp(s.player.hp - dmg, 0, s.player.maxHp);
           if (s.player.hp <= 0) {
-            this.die(`${zone.name}의 환경 피해로 사망했습니다.`);
+            this.defeat(`${zone.name}의 환경 피해로 쓰러졌습니다.`, 'environment');
             return;
           }
         }
@@ -1164,12 +1190,16 @@ export class GameEngine {
       }
     }
     for (const resId of zone.resources) {
-      const rate = (zone.resourceRates[resId] || 0.5) * bonusSpeed;
+      // 숙련도 보너스 적용
+      const resMastery = this.getMasteryTier(s.mastery.gathering.resources[resId] || 0);
+      const masteryBonus = 1 + resMastery * MASTERY_CONFIG.gathering.perTierBonus.gatherChancePercent / 100;
+      const rate = (zone.resourceRates[resId] || 0.5) * bonusSpeed * masteryBonus;
       if (Math.random() < rate) {
         const amount = rand(1, 3);
         this.addItem(resId, amount);
         gathered.push({ id: resId, amount });
         s.stats.resourcesGathered += amount;
+        this.trackGatherMastery(resId, amount);
       }
     }
 
@@ -1394,6 +1424,32 @@ export class GameEngine {
       this.emit('toast', { msg: `${recipe.name} x${recipe.amount} 제작 완료!`, type: 'success' });
     }
     this.state.stats.itemsCrafted++;
+    this.trackCraftMastery(recipeId);
+
+    // 숙련도 보너스: 재료 절약
+    const craftTier = this.getMasteryTier(this.state.mastery.crafting.recipes[recipeId] || 0);
+    if (craftTier > 0) {
+      const saveChance = craftTier * MASTERY_CONFIG.crafting.perTierBonus.saveChancePercent / 100;
+      if (Math.random() < saveChance && recipe.ingredients.length > 0) {
+        const saved = recipe.ingredients[rand(0, recipe.ingredients.length - 1)];
+        if (!saved.type || saved.type !== 'equipment') {
+          this.addItem(saved.id, 1);
+          this.emit('toast', { msg: `🎯 숙련! ${this.getItemName(saved.id)} 1개 절약!`, type: 'success' });
+        }
+      }
+    }
+    // 숙련도 보너스: 대성공 (강화+1)
+    if (craftTier >= 3 && recipe.type === 'equipment') {
+      const gsChance = MASTERY_CONFIG.crafting.tier3Bonus.greatSuccessPercent / 100;
+      if (Math.random() < gsChance) {
+        const lastEq = this.state.equipment[this.state.equipment.length - 1];
+        if (lastEq) {
+          lastEq.enhancement = (lastEq.enhancement || 0) + 1;
+          this.emit('toast', { msg: `✨ 대성공! +${lastEq.enhancement} 강화로 완성!`, type: 'success' });
+        }
+      }
+    }
+
     const bp = this.checkByproduct(recipeId);
     if (bp) {
       this.addItem(bp.id, bp.amount);
@@ -1435,6 +1491,7 @@ export class GameEngine {
     }
 
     this.state.stats.itemsCrafted += actualCount;
+    for (let i = 0; i < actualCount; i++) this.trackCraftMastery(recipeId);
     // 부산물 생성
     let bpTotals = {};
     for (let i = 0; i < actualCount; i++) {
@@ -1890,143 +1947,187 @@ export class GameEngine {
     return this.market ? this.market.completeMerchantQuest(questId) : { success: false };
   }
 
-  // ---- 사망 / 계승 ----
-  die(cause) {
+  // ---- 패배 / 숙련도 ----
+  defeat(cause, type = 'combat') {
     const s = this.state;
     if (this.combat) this.combat.stopAuto();
-    s.player.deaths++;
+    s.defeats = (s.defeats || 0) + 1;
 
-    // 레거시 포인트 계산
-    const lpGain = Math.floor(s.player.level * 2 + s.stats.monstersKilled * 0.1 + s.stats.resourcesGathered * 0.01);
-    s.player.legacyPoints += lpGain;
+    const cfg = DEFEAT_CONFIG[type] || DEFEAT_CONFIG.combat;
+    const penalties = [];
 
-    this.emit('death', {
-      cause,
-      level: s.player.level,
-      legacyGain: lpGain,
-      totalLegacy: s.player.legacyPoints,
-    });
-  }
-
-  revive() {
-    const s = this.state;
-    const oldLegacy = s.player.legacyPoints;
-    const oldBonuses = { ...s.permanentBonuses };
-    const oldDeaths = s.player.deaths;
-    const oldVault = [...s.inheritanceVault];
-    const oldVehicles = [...s.vehicles]; // 탈것은 유지
-    const oldUnlockedZones = [...s.unlockedZones];
-    const oldWorkers = s.workers.filter(w => w.level >= 5); // 레벨 5 이상 일꾼만 유지
-    const oldMercenaries = s.mercenaries.filter(m => m.level >= 3); // 레벨 3 이상 용병 유지
-    const oldStats = { ...s.stats };
-    const oldCodex = this.codex ? this.codex.getState() : null;
-    const oldMissions = this.missions ? this.missions.getState() : null;
-    const oldShrine = this.shrine ? this.shrine.getState() : null;
-    const oldBuffs = [...(s.activeBuffs || [])];
-
-    // 리셋
-    const fresh = createDefaultState();
-    this.state = fresh;
-    this.state.player.legacyPoints = oldLegacy;
-    this.state.player.deaths = oldDeaths;
-    this.state.permanentBonuses = oldBonuses;
-    this.state.vehicles = oldVehicles;
-    this.state.unlockedZones = oldUnlockedZones;
-    this.state.workers = oldWorkers;
-    for (const w of this.state.workers) {
-      w.deployedZone = null; // 배치 해제
-      w.hunger = 100;
-      w.toolDurability = w.maxToolDurability || 500;
-    }
-    this.state.mercenaries = oldMercenaries;
-    for (const m of this.state.mercenaries) {
-      m.status = 'idle';
-      m.stamina = m.maxStamina || EXPEDITION_CONFIG.maxStamina;
-      m.recoverUntil = 0;
-    }
-    this.state.stats = oldStats;
-
-    // 계승 아이템 복원
-    for (const item of oldVault) {
-      if (item.type === 'equipment') {
-        // 장비는 강화 레벨 유지
-        const newUid = this.addEquipment(item.baseId);
-        const eq = this.getEquipmentByUid(newUid);
-        if (eq) {
-          eq.enhancement = item.enhancement || 0;
-        }
-      } else if (RESOURCES[item.id]) {
-        this.addItem(item.id, item.amount);
+    // 골드 차감
+    if (cfg.goldLossPercent) {
+      const goldLoss = Math.floor(s.player.gold * cfg.goldLossPercent / 100);
+      if (goldLoss > 0) {
+        s.player.gold -= goldLoss;
+        penalties.push(`💰 -${goldLoss} 골드`);
       }
     }
-    this.state.inheritanceVault = [];
 
-    // 영구 보너스 (사망마다 소폭 증가)
-    this.state.permanentBonuses.gatherSpeed += 2;
-    this.state.permanentBonuses.combatPower += 1;
-    this.state.permanentBonuses.workerEfficiency += 1;
-    this.state.permanentBonuses.maxHpBonus += 5;
+    // 장비 내구도 감소 (전투 패배만)
+    if (cfg.durabilityLossPercent) {
+      for (const eqUid of Object.values(s.equippedGear)) {
+        if (!eqUid) continue;
+        const eq = this.getEquipmentByUid(eqUid);
+        if (eq && eq.durability !== undefined) {
+          const loss = Math.floor(eq.maxDurability * cfg.durabilityLossPercent / 100);
+          eq.durability = Math.max(0, eq.durability - loss);
+        }
+      }
+      penalties.push(`🔧 장비 내구도 -${cfg.durabilityLossPercent}%`);
+    }
 
-    this.initMarketSystem();
-    this.initCodexSystem();
-    if (oldCodex) this.codex.setState(oldCodex);
-    this.initMissionSystem();
-    if (oldMissions) this.missions.setState(oldMissions);
-    this.initExpeditionSystem();
-    this.initShrineSystem();
-    if (oldShrine) this.shrine.setState(oldShrine);
-    this.state.activeBuffs = oldBuffs;
+    // 강제 퇴각 (환경 피해)
+    if (cfg.forceRetreat) {
+      const firstZone = Object.keys(ZONES)[0];
+      if (firstZone) {
+        s.currentZone = firstZone;
+        penalties.push(`🗺️ ${ZONES[firstZone].name}(으)로 강제 이동`);
+      }
+    }
+
+    // HP 복구
+    const restoreHp = Math.floor(s.player.maxHp * (cfg.hpRestorePercent || 20) / 100);
+    s.player.hp = Math.max(restoreHp, s.player.hp);
+    if (s.player.hp < restoreHp) s.player.hp = restoreHp;
+
+    // 디버프 적용 (activeBuffs 시스템 활용)
+    if (cfg.debuff) {
+      const d = cfg.debuff;
+      // 기존 같은 이름의 디버프 제거 (갱신)
+      s.activeBuffs = (s.activeBuffs || []).filter(b => b.name !== d.name);
+      s.activeBuffs.push({
+        name: d.name,
+        icon: d.icon,
+        stat: d.stat,
+        value: d.value,
+        isPercent: d.isPercent || false,
+        ticksRemaining: d.duration,
+        isDebuff: true,
+      });
+      const statName = { attack: '공격력', defense: '방어력', speed: '속도', gatherSpeed: '채집속도' }[d.stat] || d.stat;
+      penalties.push(`${d.icon} ${d.name} (${statName} ${d.value}%, ${d.duration}초)`);
+    }
+
     this.recalcPlayerStats();
     this.saveState();
-    this.emit('toast', { msg: `부활! 레거시 포인트로 영구 보너스 강화!`, type: 'info' });
-    this.emit('stateChanged', this.state);
+
+    this.emit('defeat', {
+      cause,
+      type,
+      penalties,
+      hpRestored: restoreHp,
+    });
+    this.emit('stateChanged', s);
   }
 
-  addToVault(uid, amount) {
-    const s = this.state;
-    const slots = s.permanentBonuses.inheritanceSlots + Math.floor(s.player.legacyPoints / 50);
-    if (s.inheritanceVault.length >= slots) {
-      this.emit('toast', { msg: `계승 슬롯이 가득 찼습니다! (${slots}칸)`, type: 'error' });
-      return;
+  // ---- 숙련도 (Mastery) ----
+  getMasteryTier(count) {
+    const tiers = MASTERY_CONFIG.tiers;
+    let tier = 0;
+    for (const t of tiers) {
+      if (count >= t.threshold) tier++;
+      else break;
     }
+    return tier;
+  }
 
-    // 자원인 경우
-    if (RESOURCES[uid]) {
-      if (!this.hasItem(uid, amount)) return;
-      this.removeItem(uid, amount);
-      const existing = s.inheritanceVault.find(v => v.id === uid);
-      if (existing) { existing.amount += amount; }
-      else { s.inheritanceVault.push({ id: uid, amount }); }
-      this.emit('toast', { msg: `${this.getItemName(uid)} 계승 보관함에 추가!`, type: 'success' });
+  getMasteryLabel(count) {
+    const tiers = MASTERY_CONFIG.tiers;
+    let label = '';
+    for (const t of tiers) {
+      if (count >= t.threshold) label = t.label;
+      else break;
     }
-    // 장비 인스턴스인 경우
-    else {
-      const eq = this.getEquipmentByUid(uid);
-      if (!eq) return;
+    return label;
+  }
 
-      // 장착 해제
-      for (const [slot, eqUid] of Object.entries(s.equippedGear)) {
-        if (eqUid === uid) {
-          s.equippedGear[slot] = null;
+  trackCombatMastery(monsterId) {
+    if (!monsterId) return;
+    const m = this.state.mastery.combat;
+    m.monsters[monsterId] = (m.monsters[monsterId] || 0) + 1;
+    m.totalKills++;
+    this.checkMasteryMilestones('combat');
+  }
+
+  trackGatherMastery(resourceId, amount) {
+    if (!resourceId) return;
+    const m = this.state.mastery.gathering;
+    m.resources[resourceId] = (m.resources[resourceId] || 0) + (amount || 1);
+    m.totalGathered += (amount || 1);
+    this.checkMasteryMilestones('gathering');
+  }
+
+  trackCraftMastery(recipeId) {
+    if (!recipeId) return;
+    const m = this.state.mastery.crafting;
+    m.recipes[recipeId] = (m.recipes[recipeId] || 0) + 1;
+    m.totalCrafted++;
+    this.checkMasteryMilestones('crafting');
+  }
+
+  checkMasteryMilestones(category) {
+    const cfg = MASTERY_CONFIG[category];
+    if (!cfg || !cfg.milestones) return;
+    const m = this.state.mastery[category];
+    const total = category === 'combat' ? m.totalKills
+                : category === 'gathering' ? m.totalGathered
+                : m.totalCrafted;
+    const countKey = category === 'combat' ? 'kills' : 'count';
+
+    for (const milestone of cfg.milestones) {
+      const threshold = milestone[countKey];
+      if (total >= threshold && !m.claimedMilestones.includes(threshold)) {
+        m.claimedMilestones.push(threshold);
+        const r = milestone.reward;
+        if (r.type === 'permanentBonus') {
+          this.state.permanentBonuses[r.key] = (this.state.permanentBonuses[r.key] || 0) + r.value;
+          const names = { combatPower: '전투력', gatherSpeed: '채집속도', workerEfficiency: '일꾼효율', maxHpBonus: '최대HP' };
+          this.emit('toast', {
+            msg: `📖 숙련 마일스톤! ${names[r.key] || r.key} +${r.value}`,
+            type: 'success'
+          });
         }
       }
-
-      // 장비 제거
-      s.equipment = s.equipment.filter(e => e.uid !== uid);
-
-      // 계승 보관함에 추가 (baseId와 enhancement 정보 유지)
-      s.inheritanceVault.push({
-        type: 'equipment',
-        baseId: eq.baseId,
-        enhancement: eq.enhancement,
-        amount: 1
-      });
-
-      const displayName = this.enhancement.formatEquipmentName(eq);
-      this.emit('toast', { msg: `${displayName} 계승 보관함에 추가!`, type: 'success' });
     }
+  }
 
-    this.emit('stateChanged', s);
+  getMasterySnapshot() {
+    const m = this.state.mastery;
+    const snapshot = { combat: {}, gathering: {}, crafting: {} };
+
+    // 전투
+    snapshot.combat.totalKills = m.combat.totalKills;
+    snapshot.combat.tier = this.getMasteryTier(m.combat.totalKills);
+    snapshot.combat.label = this.getMasteryLabel(m.combat.totalKills);
+    snapshot.combat.monsters = {};
+    for (const [id, count] of Object.entries(m.combat.monsters)) {
+      snapshot.combat.monsters[id] = { count, tier: this.getMasteryTier(count), label: this.getMasteryLabel(count) };
+    }
+    snapshot.combat.claimedMilestones = [...m.combat.claimedMilestones];
+
+    // 채집
+    snapshot.gathering.totalGathered = m.gathering.totalGathered;
+    snapshot.gathering.tier = this.getMasteryTier(m.gathering.totalGathered);
+    snapshot.gathering.label = this.getMasteryLabel(m.gathering.totalGathered);
+    snapshot.gathering.resources = {};
+    for (const [id, count] of Object.entries(m.gathering.resources)) {
+      snapshot.gathering.resources[id] = { count, tier: this.getMasteryTier(count), label: this.getMasteryLabel(count) };
+    }
+    snapshot.gathering.claimedMilestones = [...m.gathering.claimedMilestones];
+
+    // 제작
+    snapshot.crafting.totalCrafted = m.crafting.totalCrafted;
+    snapshot.crafting.tier = this.getMasteryTier(m.crafting.totalCrafted);
+    snapshot.crafting.label = this.getMasteryLabel(m.crafting.totalCrafted);
+    snapshot.crafting.recipes = {};
+    for (const [id, count] of Object.entries(m.crafting.recipes)) {
+      snapshot.crafting.recipes[id] = { count, tier: this.getMasteryTier(count), label: this.getMasteryLabel(count) };
+    }
+    snapshot.crafting.claimedMilestones = [...m.crafting.claimedMilestones];
+
+    return snapshot;
   }
 
   // ---- 장비 강화 (EnhancementSystem에 위임) ----

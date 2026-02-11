@@ -17,10 +17,10 @@ const DAILY_MISSION_POOL = [
 
 // ---- 주간 미션 (고정 4개, 월요일 리셋) ----
 const WEEKLY_MISSIONS = [
-  { id: 'weekly_gather_500', name: '주간 채집 목표', desc: '자원 500개 채집', type: 'resourcesGathered', target: 500, reward: { gold: 2000, legacyPoints: 5 } },
-  { id: 'weekly_kill_100', name: '주간 토벌', desc: '몬스터 100마리 처치', type: 'monstersKilled', target: 100, reward: { gold: 2000, legacyPoints: 5 } },
+  { id: 'weekly_gather_500', name: '주간 채집 목표', desc: '자원 500개 채집', type: 'resourcesGathered', target: 500, reward: { gold: 2000, exp: 200 } },
+  { id: 'weekly_kill_100', name: '주간 토벌', desc: '몬스터 100마리 처치', type: 'monstersKilled', target: 100, reward: { gold: 2000, exp: 200 } },
   { id: 'weekly_craft_20', name: '주간 제작', desc: '아이템 20개 제작', type: 'itemsCrafted', target: 20, reward: { gold: 1500, item: 'enhancement_stone', amount: 5 } },
-  { id: 'weekly_gold_5000', name: '부의 축적', desc: '골드 5000 획득', type: 'goldEarned', target: 5000, reward: { legacyPoints: 10 } },
+  { id: 'weekly_gold_5000', name: '부의 축적', desc: '골드 5000 획득', type: 'goldEarned', target: 5000, reward: { gold: 1000, exp: 300 } },
 ];
 
 // ---- 업적 (영구) ----
@@ -52,9 +52,10 @@ const ACHIEVEMENTS = [
   { id: 'ach_codex_25', name: '수집가', desc: '도감 25% 완성', category: 'codex', type: 'codexPercentage', target: 25, reward: { gold: 1000 } },
   { id: 'ach_codex_50', name: '박물학자', desc: '도감 50% 완성', category: 'codex', type: 'codexPercentage', target: 50, reward: { gold: 3000 } },
   { id: 'ach_codex_100', name: '백과사전', desc: '도감 100% 완성', category: 'codex', type: 'codexPercentage', target: 100, reward: { gold: 10000, bonus: { allStats: 5 } } },
-  // 사망
-  { id: 'ach_death_1', name: '첫 번째 교훈', desc: '처음으로 사망', category: 'misc', type: 'deaths', target: 1, reward: { gold: 100 } },
-  { id: 'ach_death_10', name: '불사의 의지', desc: '10번 사망', category: 'misc', type: 'deaths', target: 10, reward: { gold: 1000 } },
+  // 숙련도
+  { id: 'ach_mastery_combat_3', name: '전투 숙련자', desc: '전투 숙련 Lv.3 달성', category: 'mastery', type: 'combatMasteryTier', target: 3, reward: { gold: 1000, bonus: { combatPower: 3 } } },
+  { id: 'ach_mastery_gather_3', name: '채집 숙련자', desc: '채집 숙련 Lv.3 달성', category: 'mastery', type: 'gatherMasteryTier', target: 3, reward: { gold: 1000, bonus: { gatherSpeed: 3 } } },
+  { id: 'ach_mastery_craft_3', name: '제작 숙련자', desc: '제작 숙련 Lv.3 달성', category: 'mastery', type: 'craftMasteryTier', target: 3, reward: { gold: 1000, bonus: { workerEfficiency: 3 } } },
   // 강화
   { id: 'ach_enhance_5', name: '강화의 맛', desc: '+5 강화 성공', category: 'enhance', type: 'maxEnhancement', target: 5, reward: { gold: 1000, item: 'enhancement_stone', amount: 5 } },
   { id: 'ach_enhance_10', name: '강화 마스터', desc: '+10 강화 성공', category: 'enhance', type: 'maxEnhancement', target: 10, reward: { gold: 5000, bonus: { combatPower: 5 } } },
@@ -91,10 +92,10 @@ export class MissionSystem {
    *   getWorkerCount()     → number
    *   getCodexPercentage() → number
    *   getMaxEnhancement()  → number
-   *   getDeaths()          → number
+   *   getDefeats()         → number
+   *   getMasterySnapshot() → object
    *   addGold(amount)      → void
    *   addExp(amount)       → void
-   *   addLegacyPoints(amount) → void
    *   grantItem(id, amount)   → void
    *   addPermanentBonus(key, amount) → void
    *   onStateChanged()     → void
@@ -217,7 +218,7 @@ export class MissionSystem {
     const workerCount = this.cb.getWorkerCount();
     const codexPct = this.cb.getCodexPercentage();
     const maxEnhance = this.cb.getMaxEnhancement();
-    const deaths = this.cb.getDeaths();
+    const mastery = this.cb.getMasterySnapshot ? this.cb.getMasterySnapshot() : null;
 
     for (const ach of ACHIEVEMENTS) {
       if (this.achievements[ach.id]?.unlocked) continue;
@@ -232,7 +233,9 @@ export class MissionSystem {
         case 'workerCount': currentValue = workerCount; break;
         case 'codexPercentage': currentValue = codexPct; break;
         case 'maxEnhancement': currentValue = maxEnhance; break;
-        case 'deaths': currentValue = deaths; break;
+        case 'combatMasteryTier': currentValue = mastery ? mastery.combat.tier : 0; break;
+        case 'gatherMasteryTier': currentValue = mastery ? mastery.gathering.tier : 0; break;
+        case 'craftMasteryTier': currentValue = mastery ? mastery.crafting.tier : 0; break;
       }
 
       if (currentValue >= ach.target) {
@@ -256,7 +259,6 @@ export class MissionSystem {
   grantReward(reward) {
     if (reward.gold) this.cb.addGold(reward.gold);
     if (reward.exp) this.cb.addExp(reward.exp);
-    if (reward.legacyPoints) this.cb.addLegacyPoints(reward.legacyPoints);
     if (reward.item) this.cb.grantItem(reward.item, reward.amount || 1);
     if (reward.bonus) {
       for (const [key, amount] of Object.entries(reward.bonus)) {
@@ -321,7 +323,7 @@ export class MissionSystem {
     const workerCount = this.cb.getWorkerCount();
     const codexPct = this.cb.getCodexPercentage();
     const maxEnhance = this.cb.getMaxEnhancement();
-    const deaths = this.cb.getDeaths();
+    const mastery = this.cb.getMasterySnapshot ? this.cb.getMasterySnapshot() : null;
 
     return ACHIEVEMENTS.map(ach => {
       let currentValue = 0;
@@ -334,7 +336,9 @@ export class MissionSystem {
         case 'workerCount': currentValue = workerCount; break;
         case 'codexPercentage': currentValue = codexPct; break;
         case 'maxEnhancement': currentValue = maxEnhance; break;
-        case 'deaths': currentValue = deaths; break;
+        case 'combatMasteryTier': currentValue = mastery ? mastery.combat.tier : 0; break;
+        case 'gatherMasteryTier': currentValue = mastery ? mastery.gathering.tier : 0; break;
+        case 'craftMasteryTier': currentValue = mastery ? mastery.crafting.tier : 0; break;
       }
 
       return {

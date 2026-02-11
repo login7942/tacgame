@@ -63,7 +63,7 @@ body {
   color: #aab;
 }
 #gold-display { color: #f9d71c; }
-#legacy-display { color: #a78bfa; }
+#mastery-display { color: #a78bfa; }
 
 /* ===== Tab Navigation ===== */
 #tab-nav {
@@ -662,47 +662,6 @@ body {
 @keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
 
-/* ===== Death Screen ===== */
-#death-screen {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 300;
-}
-#death-screen.hidden { display: none; }
-.death-content {
-  text-align: center;
-  padding: 30px;
-}
-.death-content h1 {
-  font-size: 36px;
-  color: #e74c3c;
-  margin-bottom: 12px;
-  animation: pulse 1.5s ease infinite;
-}
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
-#death-cause { color: #aaa; font-size: 14px; margin-bottom: 16px; }
-#death-summary {
-  background: #151c2c;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-  text-align: left;
-  font-size: 12px;
-  max-width: 300px;
-  margin-left: auto;
-  margin-right: auto;
-}
-#death-summary .summary-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 0;
-  border-bottom: 1px solid #1a2235;
-}
-
 /* ===== Deploy Status ===== */
 #deploy-status .deploy-zone {
   background: #151c2c;
@@ -1286,6 +1245,45 @@ body {
   vertical-align: middle;
   margin-left: 2px;
 }
+
+/* ===== Debuff Badge ===== */
+.debuff-badge {
+  background: rgba(244, 67, 54, 0.2) !important;
+  border-color: rgba(244, 67, 54, 0.5) !important;
+  color: #f44336 !important;
+}
+
+/* ===== Mastery Badge ===== */
+.mastery-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.mastery-badge.tier-1 { background: #2d3748; color: #a0aec0; }
+.mastery-badge.tier-2 { background: #1a3a2a; color: #68d391; }
+.mastery-badge.tier-3 { background: #1a2a4a; color: #63b3ed; }
+.mastery-badge.tier-4 { background: #3a1a4a; color: #b794f4; }
+.mastery-badge.tier-5 { background: #4a2a1a; color: #fbd38d; }
+
+/* ===== Defeat Modal ===== */
+.defeat-modal { text-align: center; }
+.defeat-modal h2 { font-size: 20px; margin-bottom: 8px; color: #f44336; }
+.defeat-cause { color: #889; margin-bottom: 12px; font-size: 13px; }
+.defeat-penalties {
+  background: rgba(244, 67, 54, 0.08);
+  border: 1px solid rgba(244, 67, 54, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 12px 0;
+  text-align: left;
+}
+.defeat-penalties h3 { font-size: 12px; color: #f44336; margin: 0 0 6px; }
+.defeat-penalty { font-size: 12px; color: #ccc; padding: 3px 0; }
+.defeat-hp { font-size: 13px; color: #4caf50; margin: 8px 0 16px; }
 
 /* ===== Responsive ===== */
 @media (min-width: 600px) {

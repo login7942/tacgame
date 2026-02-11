@@ -22,7 +22,8 @@ export class CombatSystem {
    *   addLoot(items)      → void (items: [{id, amount}])
    *   addExp(amt)         → void
    *   addGold(amt)        → void
-   *   onDeath(cause)      → void
+   *   onDefeat(cause)     → void
+   *   getMonsterMastery(monsterId) → number (tier 0~5)
    *   onStateChanged()    → void
    */
   constructor(callbacks) {
@@ -122,6 +123,12 @@ export class CombatSystem {
     if (action === 'attack') {
       let dmg = Math.max(1, pStats.attack - mon.def * 0.5);
 
+      // 숙련도 보너스
+      const masteryTier = this.cb.getMonsterMastery ? this.cb.getMonsterMastery(this.enemyId) : 0;
+      if (masteryTier > 0) {
+        dmg = Math.floor(dmg * (1 + masteryTier * 0.02));
+      }
+
       // 크리티컬
       const critChance = (pStats.crit || 0) + (pStats.luck || 0) * 0.5;
       let isCrit = false;
@@ -186,7 +193,7 @@ export class CombatSystem {
     if (hp <= 0) {
       this.log.push(`💀 ${mon.name}에게 패배했습니다...`);
       this.endCombat('defeat');
-      this.cb.onDeath(`${mon.name}에게 패배했습니다.`);
+      this.cb.onDefeat(`${mon.name}에게 패배했습니다.`);
       return;
     }
     this.emit('turnComplete', this.getSnapshot());
@@ -211,10 +218,12 @@ export class CombatSystem {
 
     // 드롭
     const pStats = this.cb.getPlayerStats();
+    const masteryTier = this.cb.getMonsterMastery ? this.cb.getMonsterMastery(this.enemyId) : 0;
     const drops = [];
     for (const loot of (monData?.loot || [])) {
       const luckBonus = (pStats.luck || 0) * 0.005;
-      if (Math.random() < loot.chance + luckBonus) {
+      const masteryDropBonus = masteryTier * 0.05;
+      if (Math.random() < loot.chance + luckBonus + masteryDropBonus) {
         const amt = rand(loot.min, loot.max);
         drops.push({ id: loot.id, amount: amt });
         // 세션 통계
@@ -236,7 +245,7 @@ export class CombatSystem {
     this.inCombat = false;
     this.emit('combatEnd', {
       reason,
-      monsterId: this.state.enemyId, // 도감 등록을 위해 추가
+      monsterId: this.enemyId, // 도감 등록을 위해 추가
       snapshot: this.getSnapshot()
     });
     this.cb.onStateChanged();
