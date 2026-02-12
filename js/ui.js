@@ -6,7 +6,8 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          EXP_TABLE,
          MERCENARY_TYPES, MERCENARY_HIRE_COSTS, MERCENARY_NAMES,
          MERC_STAMINA_FOOD, EXPEDITION_CONFIG,
-         SHRINE_CONFIG, BUFF_DEFINITIONS } from './data.js';
+         SHRINE_CONFIG, BUFF_DEFINITIONS,
+         CRAFT_TIMES, DEFAULT_CRAFT_TIME } from './data.js';
 import { formatNumber, getPercent } from './utils.js';
 
 export class GameUI {
@@ -17,6 +18,7 @@ export class GameUI {
     this.craftingFilter = 'all';
     this.selectedWorker = null;
     this.marketQuantities = {};
+    this.selectedCombatZone = null; // 전투 탭에서 선택된 사냥터
     this.init();
   }
 
@@ -24,7 +26,10 @@ export class GameUI {
     this.bindSidebar();
     this.bindTabs();
     this.bindEvents();
-    this.engine.on('tick', () => this.updateTopBar());
+    this.engine.on('tick', () => {
+      this.updateTopBar();
+      this.updateCraftingProgress();
+    });
     this.engine.on('stateChanged', () => this.renderCurrentTab());
     this.engine.on('toast', (t) => this.showToast(t.msg, t.type));
     this.engine.on('defeat', (d) => this.showDefeatModal(d));
@@ -162,26 +167,6 @@ export class GameUI {
         document.body.style.overflow = '';
       });
     });
-    nav.addEventListener('mousedown', (e) => {
-      isDown = true; hasDragged = false;
-      startX = e.pageX - nav.offsetLeft;
-      scrollLeft = nav.scrollLeft;
-      nav.style.cursor = 'grabbing';
-    });
-    nav.addEventListener('mouseleave', () => { isDown = false; nav.style.cursor = ''; });
-    nav.addEventListener('mouseup', () => { isDown = false; nav.style.cursor = ''; });
-    nav.addEventListener('mousemove', (e) => {
-      if (!isDown) return;
-      e.preventDefault();
-      const x = e.pageX - nav.offsetLeft;
-      const walk = (x - startX) * 1.5;
-      if (Math.abs(walk) > 3) hasDragged = true;
-      nav.scrollLeft = scrollLeft - walk;
-    });
-    // 드래그 중 클릭 방지
-    nav.addEventListener('click', (e) => {
-      if (hasDragged) { e.stopPropagation(); hasDragged = false; }
-    }, true);
   }
 
   renderCurrentTab() {
@@ -629,10 +614,52 @@ export class GameUI {
   }
 
   // ---- 제작 탭 ----
+  // 제작 진행률 실시간 업데이트
+  updateCraftingProgress() {
+    // 제작 탭이 아니면 업데이트하지 않음
+    if (this.currentTab !== 'crafting') return;
+
+    const progressEl = document.getElementById('crafting-progress');
+    if (!progressEl) return;
+
+    const progress = this.engine.getCraftProgress();
+    if (progress && !progress.isComplete) {
+      const progressBar = progressEl.querySelector('.craft-progress-bar');
+      const timeText = progressEl.querySelector('.craft-time-remaining');
+
+      if (progressBar) {
+        progressBar.style.width = `${progress.progress}%`;
+      }
+      if (timeText) {
+        timeText.textContent = `${progress.remainingSeconds}초 남음`;
+      }
+    }
+  }
+
   renderCrafting() {
     const s = this.engine.getState();
     if (!s) return;
     const listEl = document.getElementById('recipe-list');
+
+    // 제작 진행 상태 표시
+    const progressEl = document.getElementById('crafting-progress');
+    const progress = this.engine.getCraftProgress();
+    if (progress && !progress.isComplete) {
+      progressEl.style.display = 'block';
+      progressEl.innerHTML = `
+        <div style="background:#1a2235;border:1px solid #2a3550;border-radius:8px;padding:12px;margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:500;color:#fff;">🔨 제작 중: ${progress.recipeName}</span>
+            <span class="craft-time-remaining" style="color:#4fc3f7;font-size:12px;">${progress.remainingSeconds}초 남음</span>
+          </div>
+          <div style="background:#0f1520;border-radius:4px;height:8px;overflow:hidden;">
+            <div class="craft-progress-bar" style="background:linear-gradient(90deg,#4fc3f7,#6366f1);height:100%;width:${progress.progress}%;transition:width 0.3s ease;"></div>
+          </div>
+          <button class="btn btn-small" onclick="window._ui.engine.cancelCraft()" style="margin-top:8px;width:100%;background:#d32f2f;">취소</button>
+        </div>`;
+    } else {
+      progressEl.style.display = 'none';
+    }
 
     this.bindFilterButtons('#panel-crafting', (filter) => {
       this.craftingFilter = filter;
@@ -694,8 +721,9 @@ export class GameUI {
     if (!recipe) return;
 
     const s = this.engine.getState();
-    const maxCraftable = this.engine.getMaxCraftableAmount(recipeId);
+    const isCrafting = s.craftQueue !== null;
     const resultIcon = this.engine.getItemIcon(recipe.result);
+    const craftTime = CRAFT_TIMES[recipe.result] || DEFAULT_CRAFT_TIME;
 
     const ingredients = recipe.ingredients.map(ing => {
       if (ing.type === 'equipment') {
@@ -714,7 +742,7 @@ export class GameUI {
       return `
         <div class="modal-stat-row">
           <span class="modal-stat-label">${this.engine.getItemIcon(ing.id)} ${this.engine.getItemName(ing.id)}</span>
-          <span class="modal-stat-value ${has ? 'text-green' : 'text-red'}">${current} / ${perCraft} (개당)</span>
+          <span class="modal-stat-value ${has ? 'text-green' : 'text-red'}">${current} / ${perCraft}</span>
         </div>`;
     }).join('');
 
@@ -728,39 +756,29 @@ export class GameUI {
       </div>
 
       <div class="modal-section">
-        <div class="modal-section-title">제작 수량 <span class="text-muted" style="font-size:11px;">(최대: ${maxCraftable})</span></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-          <button class="btn btn-small craft-qty-btn btn-primary" data-qty="1">x1</button>
-          ${maxCraftable >= 5 ? `<button class="btn btn-small craft-qty-btn" data-qty="5">x5</button>` : ''}
-          ${maxCraftable >= 10 ? `<button class="btn btn-small craft-qty-btn" data-qty="10">x10</button>` : ''}
-          ${maxCraftable >= 50 ? `<button class="btn btn-small craft-qty-btn" data-qty="50">x50</button>` : ''}
-          ${maxCraftable > 1 ? `<button class="btn btn-small craft-qty-btn" data-qty="${maxCraftable}">✨ 최대 (${maxCraftable})</button>` : ''}
+        <div class="modal-section-title">제작 시간</div>
+        <div style="padding:8px 12px;background:#1a2235;border-radius:6px;color:#4fc3f7;">
+          ⏱️ ${craftTime}초
         </div>
       </div>
 
-      <button class="btn btn-success" id="btn-craft-confirm" style="width:100%;margin-top:8px;">🔨 제작하기</button>
+      ${isCrafting ? `
+        <div style="padding:12px;background:#d32f2f;border-radius:6px;color:#fff;margin-top:12px;">
+          ⚠️ 이미 다른 아이템을 제작 중입니다.
+        </div>
+      ` : `
+        <button class="btn btn-success" id="btn-craft-confirm" style="width:100%;margin-top:12px;">🔨 제작하기 (${craftTime}초)</button>
+      `}
     `;
 
     this.showModal(html);
 
-    let selectedQty = 1;
-
-    document.querySelectorAll('.craft-qty-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.craft-qty-btn').forEach(b => b.classList.remove('btn-primary'));
-        btn.classList.add('btn-primary');
-        selectedQty = parseInt(btn.dataset.qty);
-      });
-    });
-
-    document.getElementById('btn-craft-confirm')?.addEventListener('click', () => {
-      this.closeModal();
-      if (selectedQty === 1) {
+    if (!isCrafting) {
+      document.getElementById('btn-craft-confirm')?.addEventListener('click', () => {
+        this.closeModal();
         this.engine.craft(recipeId);
-      } else {
-        this.engine.craftMultiple(recipeId, selectedQty);
-      }
-    });
+      });
+    }
   }
 
   // ---- 일꾼 탭 ----
@@ -1062,7 +1080,13 @@ export class GameUI {
   renderCombat() {
     const s = this.engine.getState();
     if (!s) return;
-    const zone = ZONES[s.player.currentZone];
+
+    // 선택된 사냥터 (없으면 현재 지역)
+    if (!this.selectedCombatZone) {
+      this.selectedCombatZone = s.player.currentZone;
+    }
+    const zone = ZONES[this.selectedCombatZone];
+
     const c = this.engine.getCombatSnapshot();
     const auto = this.engine.getAutoSnapshot();
     const busy = c.inCombat || auto.enabled;
@@ -1171,9 +1195,42 @@ export class GameUI {
       }
     }
 
-    // ---- 지역 표시 ----
+    // ---- 사냥터 선택 드롭다운 ----
     const selectEl = document.getElementById('combat-zone-select');
-    selectEl.innerHTML = `<span class="text-muted" style="font-size:12px;">현재: ${zone?.icon} ${zone?.name}</span>`;
+
+    // 언락된 지역 중 몬스터가 있는 지역만 필터링
+    const huntingZones = s.unlockedZones.filter(zId => {
+      const z = ZONES[zId];
+      return z && z.monsters && z.monsters.length > 0;
+    });
+
+    selectEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;">
+        <label style="font-size:12px;color:#b0b8cc;">사냥터:</label>
+        <select id="zone-selector" style="
+          padding:6px 12px;
+          background:#1a2235;
+          border:1px solid #2a3550;
+          border-radius:6px;
+          color:#fff;
+          font-size:13px;
+          cursor:pointer;
+          min-width:200px;
+        ">
+          ${huntingZones.map(zId => {
+            const z = ZONES[zId];
+            return `<option value="${zId}" ${zId === this.selectedCombatZone ? 'selected' : ''}>
+              ${z.icon} ${z.name} (Tier ${z.tier})
+            </option>`;
+          }).join('')}
+        </select>
+      </div>`;
+
+    // 드롭다운 변경 이벤트
+    document.getElementById('zone-selector')?.addEventListener('change', (e) => {
+      this.selectedCombatZone = e.target.value;
+      this.renderCombat();
+    });
 
     // ---- 몬스터 리스트 ----
     const monListEl = document.getElementById('monster-list');

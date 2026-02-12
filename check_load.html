@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>JavaScript 로딩 확인</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/sidebar.css">
+</head>
+<body>
+  <h1>JavaScript 모듈 로딩 테스트</h1>
+  <div id="status">로딩 중...</div>
+  
+  <script type="module">
+    import { GameEngine } from './js/game.js';
+    import { GameUI } from './js/ui.js';
+    
+    console.log('✅ game.js 로드 성공');
+    console.log('✅ ui.js 로드 성공');
+    
+    document.getElementById('status').innerHTML = `
+      <h2 style="color: green;">✅ 모든 JavaScript 파일 로드 성공!</h2>
+      <p>GameEngine: ${typeof GameEngine}</p>
+      <p>GameUI: ${typeof GameUI}</p>
+    `;
+    
+    // 실제 초기화 테스트
+    try {
+      const engine = new GameEngine();
+      engine.init();
+      const ui = new GameUI(engine);
+      
+      console.log('✅ 게임 초기화 성공');
+      document.getElementById('status').innerHTML += `
+        <p style="color: green;">✅ 게임 엔진 초기화 성공</p>
+        <p>_game.getState() 콘솔에서 확인 가능</p>
+      `;
+      
+      window._game = engine;
+      window._ui = ui;
+      
+    } catch (error) {
+      console.error('❌ 초기화 오류:', error);
+      document.getElementById('status').innerHTML += `
+        <p style="color: red;">❌ 오류: ${error.message}</p>
+        <pre>${error.stack}</pre>
+      `;
+    }
+  </script>
+</body>
+</html>

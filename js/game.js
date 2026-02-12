@@ -9,7 +9,8 @@ import { RESOURCES, EQUIPMENT, ZONES, MONSTERS, RECIPES, VEHICLES,
          MERCENARY_TYPES, MERCENARY_NAMES, MERCENARY_HIRE_COSTS,
          MERC_STAMINA_FOOD, EXPEDITION_CONFIG,
          SHRINE_CONFIG, BUFF_DEFINITIONS,
-         DEFEAT_CONFIG, MASTERY_CONFIG } from './data.js';
+         DEFEAT_CONFIG, MASTERY_CONFIG,
+         CRAFT_TIMES, DEFAULT_CRAFT_TIME } from './data.js';
 import { CombatSystem } from './systems/combat.js';
 import { GatheringSystem } from './systems/gathering.js';
 import { EnhancementSystem } from './systems/enhancement.js';
@@ -18,6 +19,7 @@ import { CodexSystem } from './systems/codex.js';
 import { MissionSystem } from './systems/missions.js';
 import { ExpeditionSystem } from './systems/expedition.js';
 import { ShrineSystem } from './systems/shrine.js';
+import { CraftingSystem } from './systems/crafting.js';
 import { rand, clamp, uid } from './utils.js';
 
 // ---- 기본 상태 생성 ----
@@ -35,6 +37,7 @@ function createDefaultState() {
       equippedVehicle: null,
     },
     inventory: { wood: 5, stone: 3, herb: 2, fiber: 3, raw_meat: 2 },
+    craftQueue: null, // { recipeId, startTime, endTime }
     equipment: [], // [ equipmentId, ... ] owned equipment items
     equippedGear: { weapon: null, armor: null, tool: null, accessory: null },
     unlockedZones: ['plains'],
@@ -100,6 +103,7 @@ export class GameEngine {
     this.codex = null; // CodexSystem 인스턴스
     this.missions = null; // MissionSystem 인스턴스
     this.shrine = null; // ShrineSystem 인스턴스
+    this.crafting = null; // CraftingSystem 인스턴스
   }
 
   // ============================================================
@@ -126,6 +130,7 @@ export class GameEngine {
     this.initMissionSystem();
     this.initExpeditionSystem();
     this.initShrineSystem();
+    this.initCraftingSystem();
     this.startGameLoop();
     this.emit('stateChanged', this.state);
   }
@@ -545,6 +550,61 @@ export class GameEngine {
     });
   }
 
+  initCraftingSystem() {
+    this.crafting = new CraftingSystem({
+      getState: () => this.state,
+      canCraft: (recipeId) => this.canCraft(recipeId),
+      consumeIngredients: (recipe) => {
+        let maxEnhancement = 0;
+        for (const ing of recipe.ingredients) {
+          if (ing.type === 'equipment') {
+            const eqInstances = this.findAvailableEquipmentForCraft(ing.id, ing.amount);
+            for (const eq of eqInstances) {
+              if ((eq.enhancement || 0) > maxEnhancement) {
+                maxEnhancement = eq.enhancement || 0;
+              }
+              this.state.equipment = this.state.equipment.filter(e => e.uid !== eq.uid);
+            }
+          } else {
+            this.removeItem(ing.id, ing.amount);
+          }
+        }
+        return maxEnhancement;
+      },
+      refundIngredients: (recipe) => {
+        for (const ing of recipe.ingredients) {
+          if (ing.type === 'equipment') {
+            for (let i = 0; i < ing.amount; i++) {
+              this.addEquipment(ing.id);
+            }
+          } else {
+            this.addItem(ing.id, ing.amount);
+          }
+        }
+      },
+      addEquipment: (id) => this.addEquipment(id),
+      addItem: (id, amount) => this.addItem(id, amount),
+      setEquipmentEnhancement: (uid, level) => {
+        const eq = this.getEquipmentByUid(uid);
+        if (eq) eq.enhancement = level;
+      },
+      getEquipmentEnhancement: (uid) => {
+        const eq = this.getEquipmentByUid(uid);
+        return eq ? (eq.enhancement || 0) : 0;
+      },
+      getCraftMastery: (recipeId) => {
+        return this.state.mastery.crafting.recipes[recipeId] || 0;
+      },
+      getMasteryTier: (mastery) => this.getMasteryTier(mastery),
+      incrementCraftStats: (recipeId) => {
+        this.state.stats.itemsCrafted++;
+        this.trackCraftMastery(recipeId);
+      },
+      showToast: (msg, type) => this.emit('toast', { msg, type }),
+      onStateChanged: () => this.emit('stateChanged', this.state),
+    });
+  }
+
   // ---- 봉헌 위임 ----
   offerToShrine(equipmentUid, targetStat) {
     return this.shrine ? this.shrine.offer(equipmentUid, targetStat) : { success: false };
@@ -895,6 +955,40 @@ export class GameEngine {
         };
       }
 
+      // ===== Migration: craftQueue =====
+      if (!state.craftQueue) state.craftQueue = null;
+
+      // ===== 오프라인 제작 완료 처리 =====
+      if (state.craftQueue && state.craftQueue.endTime) {
+        const now = Date.now();
+        if (now >= state.craftQueue.endTime) {
+          // 오프라인 중 제작 완료 - 결과물만 추가하고 큐 초기화
+          const q = state.craftQueue;
+          const recipe = RECIPES.find(r => r.id === q.recipeId);
+          if (recipe) {
+            if (q.recipeType === 'equipment') {
+              const newUid = uid();
+              state.equipment.push({
+                uid: newUid,
+                baseId: q.recipeResult,
+                enhancement: q.maxEnhancement > 0 ? Math.floor(q.maxEnhancement / 2) : 0,
+                name: EQUIPMENT[q.recipeResult] ? EQUIPMENT[q.recipeResult].name : q.recipeResult,
+                durability: EQUIPMENT[q.recipeResult] ? (EQUIPMENT[q.recipeResult].tier || 1) * 100 : 100,
+                maxDurability: EQUIPMENT[q.recipeResult] ? (EQUIPMENT[q.recipeResult].tier || 1) * 100 : 100,
+              });
+            } else {
+              if (!state.inventory[q.recipeResult]) state.inventory[q.recipeResult] = 0;
+              state.inventory[q.recipeResult] += q.recipeAmount;
+            }
+            if (!state.mastery.crafting.recipes[q.recipeId]) state.mastery.crafting.recipes[q.recipeId] = 0;
+            state.mastery.crafting.recipes[q.recipeId]++;
+            state.mastery.crafting.totalCrafted++;
+            state.stats.itemsCrafted++;
+          }
+          state.craftQueue = null;
+        }
+      }
+
       return state;
     } catch { return null; }
   }
@@ -921,14 +1015,14 @@ export class GameEngine {
 
     // 배고픔 감소
     s.player.hunger = clamp(s.player.hunger - 0.15, 0, s.player.maxHunger);
-    // 배고프면 HP 감소
-    if (s.player.hunger <= 0) {
-      s.player.hp = clamp(s.player.hp - 1, 0, s.player.maxHp);
-      if (s.player.hp <= 0) {
-        this.defeat('굶주림으로 쓰러졌습니다.', 'starvation');
-        return;
-      }
-    }
+    // 배고프면 HP 감소 (비활성화)
+    // if (s.player.hunger <= 0) {
+    //   s.player.hp = clamp(s.player.hp - 1, 0, s.player.maxHp);
+    //   if (s.player.hp <= 0) {
+    //     this.defeat('굶주림으로 쓰러졌습니다.', 'starvation');
+    //     return;
+    //   }
+    // }
     // 스태미나 회복
     if (!this.combat.inCombat) {
       s.player.stamina = clamp(s.player.stamina + 0.5, 0, s.player.maxStamina);
@@ -993,6 +1087,11 @@ export class GameEngine {
 
     // 버프 틱다운
     this.tickBuffs();
+
+    // 제작 시스템 업데이트
+    if (this.crafting) {
+      this.crafting.checkCompletion();
+    }
 
     // 쿨다운
     if (this.gatherCooldown > 0) this.gatherCooldown--;
@@ -1394,135 +1493,29 @@ export class GameEngine {
   }
 
   craft(recipeId) {
-    const recipe = RECIPES.find(r => r.id === recipeId);
-    if (!recipe) return;
-    if (!this.canCraft(recipeId)) {
-      this.emit('toast', { msg: '재료가 부족합니다.', type: 'error' });
-      return;
+    // 시간 기반 제작 시스템으로 위임
+    if (this.crafting) {
+      this.crafting.startCraft(recipeId);
     }
+  }
 
-    // 장비 재료에서 최고 강화 레벨 추적 (보너스용)
-    let maxEnhFromIngredients = 0;
+  // 제작 취소
+  cancelCraft() {
+    if (this.crafting) {
+      this.crafting.cancelCraft();
+    }
+  }
 
-    // 재료 소모
-    for (const ing of recipe.ingredients) {
-      if (ing.type === 'equipment') {
-        const eqInstances = this.findAvailableEquipmentForCraft(ing.id, ing.amount);
-        for (const eq of eqInstances) {
-          if ((eq.enhancement || 0) > maxEnhFromIngredients) {
-            maxEnhFromIngredients = eq.enhancement || 0;
-          }
-          this.state.equipment = this.state.equipment.filter(e => e.uid !== eq.uid);
-        }
-      } else {
-        this.removeItem(ing.id, ing.amount);
-      }
-    }
-
-    // 결과물
-    if (recipe.type === 'equipment') {
-      const newUid = this.addEquipment(recipe.result);
-      // 재료 장비의 강화 레벨 절반 계승
-      if (maxEnhFromIngredients > 0) {
-        const bonusLevel = Math.floor(maxEnhFromIngredients / 2);
-        if (bonusLevel > 0) {
-          const eq = this.getEquipmentByUid(newUid);
-          if (eq) {
-            eq.enhancement = bonusLevel;
-            this.emit('toast', { msg: `재료 장비의 마력으로 +${bonusLevel} 강화 계승!`, type: 'success' });
-          }
-        }
-      }
-      this.emit('toast', { msg: `${recipe.name} 제작 완료!`, type: 'success' });
-    } else {
-      this.addItem(recipe.result, recipe.amount);
-      this.emit('toast', { msg: `${recipe.name} x${recipe.amount} 제작 완료!`, type: 'success' });
-    }
-    this.state.stats.itemsCrafted++;
-    this.trackCraftMastery(recipeId);
-
-    // 숙련도 보너스: 재료 절약
-    const craftTier = this.getMasteryTier(this.state.mastery.crafting.recipes[recipeId] || 0);
-    if (craftTier > 0) {
-      const saveChance = craftTier * MASTERY_CONFIG.crafting.perTierBonus.saveChancePercent / 100;
-      if (Math.random() < saveChance && recipe.ingredients.length > 0) {
-        const saved = recipe.ingredients[rand(0, recipe.ingredients.length - 1)];
-        if (!saved.type || saved.type !== 'equipment') {
-          this.addItem(saved.id, 1);
-          this.emit('toast', { msg: `🎯 숙련! ${this.getItemName(saved.id)} 1개 절약!`, type: 'success' });
-        }
-      }
-    }
-    // 숙련도 보너스: 대성공 (강화+1)
-    if (craftTier >= 3 && recipe.type === 'equipment') {
-      const gsChance = MASTERY_CONFIG.crafting.tier3Bonus.greatSuccessPercent / 100;
-      if (Math.random() < gsChance) {
-        const lastEq = this.state.equipment[this.state.equipment.length - 1];
-        if (lastEq) {
-          lastEq.enhancement = (lastEq.enhancement || 0) + 1;
-          this.emit('toast', { msg: `✨ 대성공! +${lastEq.enhancement} 강화로 완성!`, type: 'success' });
-        }
-      }
-    }
-
-    const bp = this.checkByproduct(recipeId);
-    if (bp) {
-      this.addItem(bp.id, bp.amount);
-      this.emit('toast', { msg: `부산물: ${this.getItemName(bp.id)} x${bp.amount}`, type: 'info' });
-    }
-    this.emit('stateChanged', this.state);
+  // 제작 진행 상황
+  getCraftProgress() {
+    return this.crafting ? this.crafting.getProgress() : null;
   }
 
   // 대량 제작
   craftMultiple(recipeId, count) {
-    const recipe = RECIPES.find(r => r.id === recipeId);
-    if (!recipe) return;
-
-    // 실제 제작 가능한 수량 계산
-    const maxAmount = this.getMaxCraftableAmount(recipeId);
-    const actualCount = Math.min(count, maxAmount);
-
-    if (actualCount <= 0) {
-      this.emit('toast', { msg: '재료가 부족합니다.', type: 'error' });
-      return;
-    }
-
-    // 재료 소모
-    for (const ing of recipe.ingredients) {
-      this.removeItem(ing.id, ing.amount * actualCount);
-    }
-
-    // 결과물
-    if (recipe.type === 'equipment') {
-      // 장비는 개별 인스턴스 생성
-      for (let i = 0; i < actualCount; i++) {
-        this.addEquipment(recipe.result);
-      }
-      this.emit('toast', { msg: `${recipe.name} x${actualCount} 제작 완료!`, type: 'success' });
-    } else {
-      const totalAmount = recipe.amount * actualCount;
-      this.addItem(recipe.result, totalAmount);
-      this.emit('toast', { msg: `${recipe.name} x${totalAmount} 제작 완료! (${actualCount}회 제작)`, type: 'success' });
-    }
-
-    this.state.stats.itemsCrafted += actualCount;
-    for (let i = 0; i < actualCount; i++) this.trackCraftMastery(recipeId);
-    // 부산물 생성
-    let bpTotals = {};
-    for (let i = 0; i < actualCount; i++) {
-      const bp = this.checkByproduct(recipeId);
-      if (bp) {
-        this.addItem(bp.id, bp.amount);
-        bpTotals[bp.id] = (bpTotals[bp.id] || 0) + bp.amount;
-      }
-    }
-    if (Object.keys(bpTotals).length > 0) {
-      const text = Object.entries(bpTotals).map(([id, amt]) => `${this.getItemName(id)} x${amt}`).join(', ');
-      this.emit('toast', { msg: `부산물: ${text}`, type: 'info' });
-    }
-    this.emit('stateChanged', this.state);
-
-    return actualCount;
+    // 시간 기반 제작에서는 대량 제작 불가 (한 번에 1개만)
+    this.emit('toast', { msg: '시간 기반 제작에서는 한 번에 1개씩만 제작할 수 있습니다.', type: 'info' });
+    this.craft(recipeId);
   }
 
   // ---- 전투 (CombatSystem에 위임) ----

@@ -975,3 +975,35 @@ export const MASTERY_CONFIG = {
     ],
   },
 };
+
+// ===== 제작 시간 설정 (초 단위) =====
+export const CRAFT_TIMES = {
+  // 재료
+  rope: 5, cloth: 8, leather: 10,
+  copper_ingot: 12, iron_ingot: 15, steel: 20, gold_ingot: 25,
+  mithril_ingot: 30, reinforced_steel: 40,
+  enchanted_wood: 25, enchanted_crystal: 30,
+  
+  // 장비 (티어별)
+  wooden_sword: 10, wooden_staff: 10, leather_armor: 15,
+  iron_sword: 20, iron_armor: 25, steel_sword: 30, steel_armor: 35,
+  mithril_sword: 45, mithril_armor: 50,
+  
+  // 도구
+  stone_pickaxe: 8, iron_pickaxe: 15, steel_pickaxe: 25,
+  
+  // 탈것
+  basic_raft: 30, wooden_boat: 60, iron_ship: 120,
+  simple_glider: 45, metal_glider: 90,
+  basic_rover: 180, advanced_rover: 300,
+  small_shuttle: 600,
+  
+  // 음식
+  cooked_meat: 3, herb_potion: 5, fire_potion: 10, ice_potion: 10,
+  
+  // 버프
+  speed_potion: 15, power_potion: 15, defense_potion: 15,
+};
+
+// 기본 제작 시간 (정의되지 않은 아이템)
+export const DEFAULT_CRAFT_TIME = 10;

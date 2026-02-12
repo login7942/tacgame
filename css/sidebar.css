@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 10;
   transition: all 0.2s ease;
 }
 
@@ -65,7 +65,7 @@
   height: 100vh;
   background: #151c2c;
   border-right: 1px solid #2a3550;
-  z-index: 1002;
+  z-index: 50;
   transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
@@ -177,16 +177,16 @@
   width: 100%;
   height: 100%;
   background: rgba(0, 0, 0, 0);
-  z-index: 99;
+  z-index: 49;
   pointer-events: none;
   transition: background 0.3s ease;
-  display: none;
+  visibility: hidden;
 }
 
 .sidebar-overlay.active {
   background: rgba(0, 0, 0, 0.5);
   pointer-events: auto;
-  display: block;
+  visibility: visible;
 }
 
 /* ===== Top Bar 조정 (햄버거 버튼 공간 확보) ===== */

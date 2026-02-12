@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>버튼 테스트</title>
+  <style>
+    body { padding: 20px; font-family: sans-serif; }
+    button { padding: 10px 20px; margin: 10px; font-size: 16px; cursor: pointer; }
+    .result { margin-top: 20px; padding: 10px; background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>버튼 클릭 테스트</h1>
+  
+  <button id="test1">테스트 버튼 1</button>
+  <button id="test2">테스트 버튼 2</button>
+  <button onclick="alert('직접 onclick 작동!')">직접 onclick</button>
+  
+  <div class="result" id="result">결과가 여기 표시됩니다</div>
+  
+  <script>
+    console.log('스크립트 로드됨');
+    
+    // 방법 1: getElementById + addEventListener
+    const btn1 = document.getElementById('test1');
+    if (btn1) {
+      btn1.addEventListener('click', () => {
+        console.log('버튼 1 클릭!');
+        document.getElementById('result').textContent = '버튼 1 작동!';
+      });
+      console.log('버튼 1 이벤트 바인딩 완료');
+    } else {
+      console.error('버튼 1을 찾을 수 없음');
+    }
+    
+    // 방법 2: querySelector + addEventListener
+    document.querySelector('#test2')?.addEventListener('click', () => {
+      console.log('버튼 2 클릭!');
+      document.getElementById('result').textContent = '버튼 2 작동!';
+    });
+    
+    console.log('모든 이벤트 바인딩 완료');
+  </script>
+</body>
+</html>
